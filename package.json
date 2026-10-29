@@ -1,0 +1,38 @@
+{
+  "name": "orchestrator",
+  "version": "0.1.0",
+  "description": "Ask Claude Code for changes to your running app, watch them land live, and flip between takes without losing your place.",
+  "type": "module",
+  "bin": {
+    "orch": "bin/orch.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "node scripts/build-dock.mjs",
+    "test": "node --test test/unit/*.test.js",
+    "test:e2e": "node test/e2e/run.mjs"
+  },
+  "keywords": [
+    "claude-code",
+    "vite",
+    "react",
+    "agents",
+    "worktree",
+    "devtools"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "motion": "14.7.1",
+    "notch-toast": "0.2.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}
