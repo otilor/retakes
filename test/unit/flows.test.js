@@ -7,7 +7,7 @@ import { validateFlow, saveFlow, loadFlows, deleteFlow, playwrightSpec, describe
 import { fixPrompt } from '../../src/prompt.js';
 import { UserError } from '../../src/proc.js';
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'orch-flows-'));
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'retakes-flows-'));
 const FLOW = {
   name: 'Clear filters',
   start: '/',
@@ -34,14 +34,14 @@ test('saveFlow writes JSON and a Playwright test, never overwriting another flow
   assert.equal(a.id, 'clear-filters');
   const b = saveFlow(dir, FLOW);
   assert.equal(b.id, 'clear-filters-2');
-  assert.ok(fs.existsSync(path.join(dir, '.orch', 'flows', 'clear-filters.spec.mjs')));
+  assert.ok(fs.existsSync(path.join(dir, '.retakes', 'flows', 'clear-filters.spec.mjs')));
   // Re-saving by id updates in place.
   saveFlow(dir, { ...FLOW, id: 'clear-filters', name: 'Clear filters again' });
-  fs.writeFileSync(path.join(dir, '.orch', 'flows', 'broken.json'), '{ nope');
+  fs.writeFileSync(path.join(dir, '.retakes', 'flows', 'broken.json'), '{ nope');
   assert.deepEqual(loadFlows(dir).map((f) => [f.id, f.name]), [['clear-filters-2', 'Clear filters'], ['clear-filters', 'Clear filters again']]);
   deleteFlow(dir, '../clear-filters-2');
   assert.deepEqual(loadFlows(dir).map((f) => f.id), ['clear-filters']);
-  assert.equal(fs.existsSync(path.join(dir, '.orch', 'flows', 'clear-filters-2.spec.mjs')), false);
+  assert.equal(fs.existsSync(path.join(dir, '.retakes', 'flows', 'clear-filters-2.spec.mjs')), false);
   assert.equal(flowId('Search → open a stay!'), 'search-open-a-stay');
 });
 

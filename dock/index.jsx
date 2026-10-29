@@ -5,8 +5,8 @@ import { CFG, takeRestore, readCookie, setCookie } from './lib.js';
 import { watchErrors, runPane } from './watch.js';
 
 function boot() {
-  if (window.__ORCH_BOOTED__) return;
-  window.__ORCH_BOOTED__ = true;
+  if (window.__RETAKES_BOOTED__) return;
+  window.__RETAKES_BOOTED__ = true;
   if (CFG.pane) {
     runPane();
     return;
@@ -18,7 +18,7 @@ function boot() {
   const watcher = watchErrors();
 
   const mount = () => {
-    const host = document.createElement('orch-dock');
+    const host = document.createElement('retakes-dock');
     const shadow = host.attachShadow({ mode: 'open' });
     const style = document.createElement('style');
     style.textContent = css;

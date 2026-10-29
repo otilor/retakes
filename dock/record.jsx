@@ -3,10 +3,10 @@ import { toast } from 'notch-toast';
 import { api, CFG } from './lib.js';
 
 // Recording a flow: what you click, type and choose on the page becomes a list of steps that
-// Orchestrator replays with Playwright on every take. A recording survives page loads, so flows
+// Retakes replays with Playwright on every take. A recording survives page loads, so flows
 // can cross pages.
 
-const REC_KEY = '__orch_rec';
+const REC_KEY = '__retakes_rec';
 const TEXT_INPUT = /^(text|search|email|url|tel|password|number|date|datetime-local|month|week|time|color)$/;
 
 export function savedRecording() {

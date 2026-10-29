@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Stands in for `claude -p ... --output-format stream-json` in tests. It speaks the same
 // stream-json lines, edits the fixture app based on keywords in the prompt, and records
-// every call so tests can check the flags Orchestrator passed.
+// every call so tests can check the flags Retakes passed.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -17,8 +17,8 @@ const cwd = process.cwd();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const out = (o) => process.stdout.write(`${JSON.stringify({ session_id: sessionId, ...o })}\n`);
 
-if (process.env.ORCH_MOCK_LOG) {
-  fs.appendFileSync(process.env.ORCH_MOCK_LOG, `${JSON.stringify({ cwd, args, prompt, at: Date.now() })}\n`);
+if (process.env.RETAKES_MOCK_LOG) {
+  fs.appendFileSync(process.env.RETAKES_MOCK_LOG, `${JSON.stringify({ cwd, args, prompt, at: Date.now() })}\n`);
 }
 
 const edit = async (rel, from, to) => {
@@ -27,7 +27,7 @@ const edit = async (rel, from, to) => {
   const src = fs.readFileSync(file, 'utf8');
   if (!src.includes(from)) throw new Error(`mock: "${from}" not found in ${rel}`);
   fs.writeFileSync(file, src.replace(from, to));
-  await sleep(Number(process.env.ORCH_MOCK_STEP_MS || 700));
+  await sleep(Number(process.env.RETAKES_MOCK_STEP_MS || 700));
 };
 
 out({ type: 'system', subtype: 'init', cwd, model: flag('--model') || 'default', permissionMode: flag('--permission-mode') });

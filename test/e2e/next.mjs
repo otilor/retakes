@@ -1,5 +1,5 @@
 // End-to-end test for Next.js: a real Next 16 app (App Router, server and client components),
-// the real orch command, a real browser and the mock Claude Code. Run with `npm run test:e2e:next`.
+// the real retakes command, a real browser and the mock Claude Code. Run with `npm run test:e2e:next`.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -10,7 +10,7 @@ import { makeApp, ROOT } from './fixture.mjs';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 
-const BASE = process.env.ORCH_E2E_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'orch-e2e-'));
+const BASE = process.env.RETAKES_E2E_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'retakes-e2e-'));
 const SHOTS = path.join(BASE, 'shots-next');
 fs.mkdirSync(SHOTS, { recursive: true });
 const HOME = fs.mkdtempSync(path.join(BASE, 'home-'));
@@ -31,7 +31,7 @@ async function step(name, fn) {
   } catch (err) {
     console.log(`  ✗ ${name}\n    ${err.stack || err.message}`);
     await page.screenshot({ path: path.join(SHOTS, `fail-${name.replace(/\W+/g, '-')}.png`) }).catch(() => {});
-    console.log(`\norch output:\n${orchOut.slice(-4000)}`);
+    console.log(`\nretakes output:\n${retakesOut.slice(-4000)}`);
     await shutdown();
     process.exit(1);
   }
@@ -62,22 +62,22 @@ const { dir: APP, git } = makeApp({
 });
 console.log(`App: ${APP}\nHub port: ${PORT}`);
 
-let orch = null;
-let orchOut = '';
-function startOrch() {
-  orch = spawn(process.execPath, [path.join(ROOT, 'bin', 'orch.js'), '--no-open', '--port', String(PORT)], {
+let retakes = null;
+let retakesOut = '';
+function startRetakes() {
+  retakes = spawn(process.execPath, [path.join(ROOT, 'bin', 'retakes.js'), '--no-open', '--port', String(PORT)], {
     cwd: APP,
-    env: { ...process.env, ORCH_HOME: HOME, ORCH_MOCK_LOG: MOCK_LOG, ORCH_MOCK_STEP_MS: '900' },
+    env: { ...process.env, RETAKES_HOME: HOME, RETAKES_MOCK_LOG: MOCK_LOG, RETAKES_MOCK_STEP_MS: '900' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  orch.stdout.on('data', (d) => (orchOut += d));
-  orch.stderr.on('data', (d) => (orchOut += d));
-  return until(() => /main: dev server ready/.test(orchOut), 'main dev server ready', 90000);
+  retakes.stdout.on('data', (d) => (retakesOut += d));
+  retakes.stderr.on('data', (d) => (retakesOut += d));
+  return until(() => /main: dev server ready/.test(retakesOut), 'main dev server ready', 90000);
 }
-async function stopOrch() {
-  if (!orch || orch.exitCode !== null) return;
-  const done = new Promise((r) => orch.once('exit', r));
-  orch.kill('SIGINT');
+async function stopRetakes() {
+  if (!retakes || retakes.exitCode !== null) return;
+  const done = new Promise((r) => retakes.once('exit', r));
+  retakes.kill('SIGINT');
   await done;
 }
 
@@ -90,18 +90,18 @@ const URL0 = `http://localhost:${PORT}/`;
 
 async function shutdown() {
   await browser.close().catch(() => {});
-  await stopOrch().catch(() => {});
+  await stopRetakes().catch(() => {});
 }
 
-const dock = () => page.locator('orch-dock .dock');
-const tile = (label) => page.locator(`orch-dock .tiles button[aria-label^="${label},"]`);
+const dock = () => page.locator('retakes-dock .dock');
+const tile = (label) => page.locator(`retakes-dock .tiles button[aria-label^="${label},"]`);
 let TOKEN = null;
 // Calls go from Node, not the page, since Keep and switches reload the page mid-call.
 async function apiCall(p, body) {
-  if (!TOKEN) TOKEN = await page.evaluate(() => window.__ORCH__.token);
-  const r = await fetch(`${URL0}__orch/api/${p}`, {
+  if (!TOKEN) TOKEN = await page.evaluate(() => window.__RETAKES__.token);
+  const r = await fetch(`${URL0}__retakes/api/${p}`, {
     method: body === undefined ? 'GET' : 'POST',
-    headers: { 'x-orch-token': TOKEN, 'content-type': 'application/json' },
+    headers: { 'x-retakes-token': TOKEN, 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: r.status, body: await r.json().catch(() => null) };
@@ -122,9 +122,9 @@ async function waitReady(id, timeout = 240000) {
 }
 
 try {
-  await step('orch runs next dev and serves the app with the dock', async () => {
-    await startOrch();
-    ok(/main: dev server ready/.test(orchOut), 'ready');
+  await step('retakes runs next dev and serves the app with the dock', async () => {
+    await startRetakes();
+    ok(/main: dev server ready/.test(retakesOut), 'ready');
     await page.goto(URL0);
     await dock().waitFor({ timeout: 90000 });
     ok((await page.locator('.greeting').textContent()) === 'hello from env', 'env works');
@@ -135,10 +135,10 @@ try {
   await step('the picker names client and server components', async () => {
     const pick = async (sel) => {
       await page.keyboard.press('p');
-      await page.locator('orch-dock .pick-hint').waitFor();
+      await page.locator('retakes-dock .pick-hint').waitFor();
       const b = await page.locator(sel).first().boundingBox();
       await page.mouse.click(b.x + 5, b.y + 5);
-      const chip = await page.locator('orch-dock .chip').textContent();
+      const chip = await page.locator('retakes-dock .chip').textContent();
       await page.keyboard.press('Escape');
       await page.keyboard.press('Escape');
       return chip;
@@ -151,10 +151,10 @@ try {
     const r = await apiCall('takes', { prompt: 'make the search bar larger', element: { selector: 'form.search > button.search-button', component: 'SearchBar' } });
     ok(r.status === 200, `created (${JSON.stringify(r.body)})`);
     await waitReady('t1');
-    ok(git('rev-list', '--count', 'main..orch/take-1').trim() === '1', 'committed');
+    ok(git('rev-list', '--count', 'main..retakes/take-1').trim() === '1', 'committed');
     await tile('agent-1').click();
     await page.waitForLoadState('load');
-    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 't1', 'agent-1 served');
+    await until(async () => (await page.evaluate(() => window.__RETAKES__ && window.__RETAKES__.v)) === 't1', 'agent-1 served');
     await until(async () => (await page.locator('.search-button').textContent()) === 'Search big 1', 'the change shows', 60000);
     ok((await page.locator('.greeting').textContent()) === 'hello from env', 'env copied into the take');
     ok(page.url() === URL0, 'same URL');
@@ -216,11 +216,11 @@ try {
     await until(async () => (await page.locator('.search-button').textContent()) === 'Search big 1', 'main has the change', 60000);
   });
 
-  await step('orch stops cleanly and clean leaves the checkout tidy', async () => {
-    await stopOrch();
-    ok(/Stopping dev servers/.test(orchOut), 'clean shutdown');
-    execFileSync(process.execPath, [path.join(ROOT, 'bin', 'orch.js'), 'clean', '--yes'], { cwd: APP, env: { ...process.env, ORCH_HOME: HOME } });
-    ok(!git('branch', '--list', 'orch/*').trim(), 'no orch branches');
+  await step('retakes stops cleanly and clean leaves the checkout tidy', async () => {
+    await stopRetakes();
+    ok(/Stopping dev servers/.test(retakesOut), 'clean shutdown');
+    execFileSync(process.execPath, [path.join(ROOT, 'bin', 'retakes.js'), 'clean', '--yes'], { cwd: APP, env: { ...process.env, RETAKES_HOME: HOME } });
+    ok(!git('branch', '--list', 'retakes/*').trim(), 'no retakes branches');
     ok(git('status', '--porcelain').trim() === '', 'your checkout is clean');
   });
 

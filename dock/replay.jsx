@@ -5,7 +5,7 @@ import { describeStep, roleOf, nameOf } from './record.jsx';
 // you're looking at, slowly, with each element highlighted. It starts from a fresh load of the
 // flow's first page and carries on across page loads.
 
-const WATCH_KEY = '__orch_watch';
+const WATCH_KEY = '__retakes_watch';
 const STEP_TIMEOUT = 6000;
 const PAUSE = 650;
 

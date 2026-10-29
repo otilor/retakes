@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { UserError, findPort, releasePort } from './proc.js';
 
-const COOKIE = '__orch_v';
+const COOKIE = '__retakes_v';
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 const MAX_BODY = 1024 * 1024;
 
@@ -16,8 +16,8 @@ const MAX_BODY = 1024 * 1024;
  * Compare panes get "pinned" ports that always serve one version.
  */
 export class Hub {
-  constructor(orch, { port, host = '127.0.0.1', dockFile, log = () => {} }) {
-    this.orch = orch;
+  constructor(retakes, { port, host = '127.0.0.1', dockFile, log = () => {} }) {
+    this.retakes = retakes;
     this.port = port;
     this.host = host;
     this.dockFile = dockFile;
@@ -26,9 +26,9 @@ export class Hub {
     this.clients = new Set();
     this.pins = new Map();
     this.servers = [];
-    orch.on('state', (s) => this.broadcast('state', s));
-    orch.on('notice', (n) => this.broadcast('notice', n));
-    orch.on('removed', (id) => this.unpin(id));
+    retakes.on('state', (s) => this.broadcast('state', s));
+    retakes.on('notice', (n) => this.broadcast('notice', n));
+    retakes.on('removed', (id) => this.unpin(id));
   }
 
   listen() {
@@ -70,12 +70,12 @@ export class Hub {
 
   async handle(req, res, pinned) {
     const url = new URL(req.url, 'http://x');
-    if (url.pathname.startsWith('/__orch/')) {
-      if (!this.hostAllowed(req)) return sendText(res, 403, 'Orchestrator only answers on localhost.');
-      if (url.pathname === '/__orch/dock.js') return this.sendDock(res);
+    if (url.pathname.startsWith('/__retakes/')) {
+      if (!this.hostAllowed(req)) return sendText(res, 403, 'Retakes only answers on localhost.');
+      if (url.pathname === '/__retakes/dock.js') return this.sendDock(res);
       if (pinned) return sendText(res, 404, 'Not found');
-      if (url.pathname === '/__orch/events') return this.events(req, res, url);
-      if (url.pathname.startsWith('/__orch/api/')) return this.api(req, res, url);
+      if (url.pathname === '/__retakes/events') return this.events(req, res, url);
+      if (url.pathname.startsWith('/__retakes/api/')) return this.api(req, res, url);
       return sendText(res, 404, 'Not found');
     }
     return this.proxy(req, res, pinned);
@@ -93,7 +93,7 @@ export class Hub {
     try {
       js = fs.readFileSync(this.dockFile);
     } catch {
-      return sendText(res, 500, 'The dock bundle is missing. Run `npm run build` in the orchestrator package.');
+      return sendText(res, 500, 'The dock bundle is missing. Run `npm run build` in the retakes package.');
     }
     res.writeHead(200, {
       'content-type': 'text/javascript; charset=utf-8',
@@ -106,11 +106,11 @@ export class Hub {
   // ---------- proxy ----------
 
   pick(req, pinned) {
-    if (pinned) return { id: pinned, target: this.orch.target(pinned) };
+    if (pinned) return { id: pinned, target: this.retakes.target(pinned) };
     const wanted = readCookie(req.headers.cookie, COOKIE) || 'main';
-    const target = this.orch.target(wanted);
+    const target = this.retakes.target(wanted);
     if (target) return { id: wanted, target };
-    return { id: 'main', target: this.orch.target('main') };
+    return { id: 'main', target: this.retakes.target('main') };
   }
 
   proxy(req, res, pinned) {
@@ -171,7 +171,7 @@ export class Hub {
       );
       up.on('error', (err) => {
         if (!res.headersSent) {
-          sendText(res, 502, `Orchestrator couldn't reach the dev server for ${id === 'main' ? 'main' : id}: ${err.message}`);
+          sendText(res, 502, `Retakes couldn't reach the dev server for ${id === 'main' ? 'main' : id}: ${err.message}`);
         } else res.destroy();
         resolve();
       });
@@ -180,14 +180,14 @@ export class Hub {
   }
 
   notReady(req, res, pinned) {
-    const main = this.orch.main.server;
+    const main = this.retakes.main.server;
     const wantsHtml = /text\/html/.test(String(req.headers.accept || ''));
     if (!wantsHtml) return sendText(res, 503, 'The dev server is starting.');
     const failed = !pinned && (main.status === 'failed' || main.status === 'crashed');
     const body = failed
       ? page(
           "Your dev server didn't start",
-          `<p>Orchestrator ran your dev server, but it stopped. Here's the end of its output:</p><pre>${esc(main.error || '')}</pre><p>Fix the problem, then restart <code>orch</code>.</p>`
+          `<p>Retakes ran your dev server, but it stopped. Here's the end of its output:</p><pre>${esc(main.error || '')}</pre><p>Fix the problem, then restart <code>retakes</code>.</p>`
         )
       : page('Starting…', '<p>Waiting for the dev server. This page reloads when it’s ready.</p>', true);
     res.writeHead(failed ? 502 : 503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
@@ -197,7 +197,7 @@ export class Hub {
   upgrade(req, socket, head, pinned) {
     socket.on('error', () => socket.destroy());
     const { target } = this.pick(req, pinned);
-    if (!target || String(req.url).startsWith('/__orch/')) return socket.destroy();
+    if (!target || String(req.url).startsWith('/__retakes/')) return socket.destroy();
     const up = net.connect(target.port, target.host, () => {
       let raw = `${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`;
       for (let i = 0; i < req.rawHeaders.length; i += 2) raw += `${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}\r\n`;
@@ -221,7 +221,7 @@ export class Hub {
       'x-accel-buffering': 'no',
     });
     res.write('retry: 1000\n\n');
-    res.write(`event: state\ndata: ${JSON.stringify(this.orch.snapshot())}\n\n`);
+    res.write(`event: state\ndata: ${JSON.stringify(this.retakes.snapshot())}\n\n`);
     this.clients.add(res);
     req.on('close', () => this.clients.delete(res));
     if (!this.pingTimer) {
@@ -240,10 +240,10 @@ export class Hub {
   // ---------- API ----------
 
   async api(req, res, url) {
-    const token = req.headers['x-orch-token'] || url.searchParams.get('t');
-    if (token !== this.token) return sendJson(res, 403, { error: 'Reload the page: Orchestrator restarted.' });
-    const parts = url.pathname.slice('/__orch/api/'.length).split('/').filter(Boolean).map(decodeURIComponent);
-    const o = this.orch;
+    const token = req.headers['x-retakes-token'] || url.searchParams.get('t');
+    if (token !== this.token) return sendJson(res, 403, { error: 'Reload the page: Retakes restarted.' });
+    const parts = url.pathname.slice('/__retakes/api/'.length).split('/').filter(Boolean).map(decodeURIComponent);
+    const o = this.retakes;
     try {
       if (req.method === 'GET') {
         if (parts[0] === 'state') return sendJson(res, 200, o.snapshot());
@@ -327,7 +327,7 @@ export class Hub {
   }
 
   pin(id) {
-    if (!this.orch.version(id)) return Promise.reject(new UserError("That version doesn't exist anymore."));
+    if (!this.retakes.version(id)) return Promise.reject(new UserError("That version doesn't exist anymore."));
     if (!this.pins.has(id)) {
       const ready = (async () => {
         const port = await findPort(this.port + 100);
@@ -359,11 +359,11 @@ export class Hub {
 export function injectDock(html, cfg) {
   const json = JSON.stringify(cfg).replace(/</g, '\\u003c');
   const snippet =
-    `<script data-orch>window.__ORCH__=${json};` +
-    `(function(){var q=window.__ORCH_ERRQ=[];function p(m,s,k){m=String(m||'');if(!m||m==='Script error.')return;q.push({message:m,stack:s?String(s):'',kind:k||'runtime'});if(window.__ORCH_ONERR)window.__ORCH_ONERR();}` +
+    `<script data-retakes>window.__RETAKES__=${json};` +
+    `(function(){var q=window.__RETAKES_ERRQ=[];function p(m,s,k){m=String(m||'');if(!m||m==='Script error.')return;q.push({message:m,stack:s?String(s):'',kind:k||'runtime'});if(window.__RETAKES_ONERR)window.__RETAKES_ONERR();}` +
     `window.addEventListener('error',function(e){p(e.message||(e.error&&e.error.message),e.error&&e.error.stack)});` +
     `window.addEventListener('unhandledrejection',function(e){var r=e.reason;p('Unhandled promise rejection: '+((r&&r.message)||r),r&&r.stack)});})();</script>` +
-    `<script src="/__orch/dock.js" defer data-orch></script>`;
+    `<script src="/__retakes/dock.js" defer data-retakes></script>`;
   const head = html.search(/<\/head\s*>/i);
   if (head >= 0) return html.slice(0, head) + snippet + html.slice(head);
   const body = html.match(/<body[^>]*>/i);
@@ -441,7 +441,7 @@ function esc(s) {
 function page(title, inner, refresh = false) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${
     refresh ? '<meta http-equiv="refresh" content="1">' : ''
-  }<title>${esc(title)} · Orchestrator</title><style>
+  }<title>${esc(title)} · Retakes</title><style>
 :root{color-scheme:light dark;--bg:#f4f5f8;--fg:#121620;--muted:#4b5364;--card:#fff;--line:#dde0e8}
 @media (prefers-color-scheme:dark){:root{--bg:#0e1016;--fg:#f3f4f8;--muted:#a9afbd;--card:#16181f;--line:#262a35}}
 body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--fg);font:15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}

@@ -16,7 +16,7 @@ import {
 } from '../../src/project.js';
 import { UserError } from '../../src/proc.js';
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'orch-unit-'));
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'retakes-unit-'));
 const write = (dir, rel, text = '') => {
   fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
   fs.writeFileSync(path.join(dir, rel), text);
@@ -28,7 +28,7 @@ test('splitArgs handles quotes and repeated spaces', () => {
   assert.deepEqual(splitArgs(''), []);
 });
 
-test('viteArgsFromScript drops the flags Orchestrator sets itself', () => {
+test('viteArgsFromScript drops the flags Retakes sets itself', () => {
   assert.deepEqual(viteArgsFromScript('vite'), []);
   assert.deepEqual(viteArgsFromScript('vite --open --port 3000 --host'), []);
   assert.deepEqual(viteArgsFromScript('vite --port=3000 --strictPort --mode staging'), ['--mode', 'staging']);
@@ -50,7 +50,7 @@ test('resolveDevMode runs Vite directly, or the configured command', () => {
 test('loadConfig validates each field', () => {
   const dir = tmp();
   assert.deepEqual(loadConfig(dir), {});
-  write(dir, 'orch.config.json', JSON.stringify({ port: 4400, agent: { model: 'haiku' } }));
+  write(dir, 'retakes.config.json', JSON.stringify({ port: 4400, agent: { model: 'haiku' } }));
   assert.deepEqual(loadConfig(dir), { port: 4400, agent: { command: undefined, args: undefined, permissionMode: undefined, model: 'haiku', effort: undefined } });
 
   const bad = [
@@ -65,7 +65,7 @@ test('loadConfig validates each field', () => {
     JSON.stringify({ agent: { effort: 'turbo' } }),
   ];
   for (const text of bad) {
-    write(dir, 'orch.config.json', text);
+    write(dir, 'retakes.config.json', text);
     assert.throws(() => loadConfig(dir), UserError, text);
   }
 });

@@ -1,4 +1,4 @@
-# Orchestrator
+# Retakes
 
 Point at your running app, say what to change, and Claude Code builds it in a separate copy of your project while you watch. Try a few takes, flip between them on the same URL, compare two side by side, and keep the one you like.
 
@@ -42,29 +42,29 @@ Notifications (done, failed, errors, kept) appear at the top of the page via [No
 
 ## Whose Claude it uses
 
-Orchestrator has no API key of its own. Each request is one headless run of your own Claude Code, signed in as you, so it counts against your Claude plan (or your API key, if Claude Code uses one). Takes use **Sonnet** by default, which handles UI work well. Runs are tuned for quick UI edits: low effort, no MCP servers, no subagents or web lookups. Set `"agent": { "model": "haiku" }` for lighter use, `"opus"` for harder changes, or `"effort": "high"` when a change needs more thought.
+Retakes has no API key of its own. Each request is one headless run of your own Claude Code, signed in as you, so it counts against your Claude plan (or your API key, if Claude Code uses one). Takes use **Sonnet** by default, which handles UI work well. Runs are tuned for quick UI edits: low effort, no MCP servers, no subagents or web lookups. Set `"agent": { "model": "haiku" }` for lighter use, `"opus"` for harder changes, or `"effort": "high"` when a change needs more thought.
 
 ## Flows
 
-A flow is a short user journey you record once, like "search for Lisbon, clear the filters, check it says No filters". Orchestrator replays every flow with [Playwright](https://playwright.dev) on each take after its agent finishes, headless and in the background, against that take's own dev server. A failure only counts against a take if the same flow passes on main.
+A flow is a short user journey you record once, like "search for Lisbon, clear the filters, check it says No filters". Retakes replays every flow with [Playwright](https://playwright.dev) on each take after its agent finishes, headless and in the background, against that take's own dev server. A failure only counts against a take if the same flow passes on main.
 
 - **Watch** in the Flows panel plays a flow on the page you're looking at, step by step, highlighting each element, so you can see what it does and where it breaks.
-- Flows are saved in your app at `.orch/flows/<name>.json`, next to a generated `<name>.spec.mjs` Playwright test you can run in CI. Commit them to share them.
+- Flows are saved in your app at `.retakes/flows/<name>.json`, next to a generated `<name>.spec.mjs` Playwright test you can run in CI. Commit them to share them.
 - Each step remembers a few ways to find its element (test ids, labels, roles, then its position), so a take that only restyles or renames a button doesn't break the flow. Checks are strict: if the text changes, the check fails.
-- Replays use your app's own Playwright if it has one. Otherwise Orchestrator installs `playwright-core` once into `~/.orch/runtime`, and uses your Chrome or Edge. It downloads a browser (about 150 MB) only if you have neither.
+- Replays use your app's own Playwright if it has one. Otherwise Retakes installs `playwright-core` once into `~/.retakes/runtime`, and uses your Chrome or Edge. It downloads a browser (about 150 MB) only if you have neither.
 - Flows run against your dev servers, so a flow that saves data saves it each time it runs.
 
 ## How it works
 
-- **Each take is a git worktree** under `~/.orch/projects/<app>/takes/`, on its own branch `orch/take-N`, started from your current commit. Your working folder is never touched until you Keep. Your `.env` files are copied in; dependencies are installed with your package manager and lockfile.
+- **Each take is a git worktree** under `~/.retakes/projects/<app>/takes/`, on its own branch `retakes/take-N`, started from your current commit. Your working folder is never touched until you Keep. Your `.env` files are copied in; dependencies are installed with your package manager and lockfile.
 - **Each take gets its own dev server** on a private port, so hot reload works in every take at once.
 - **The hub is one origin for all of them.** It proxies to whichever version you're viewing, chosen by a cookie, so switching keeps your URL, cookies and localStorage. It also injects the dock into HTML pages; your app's code is unchanged.
-- **Claude Code runs headless** in the take's folder: `claude -p --output-format stream-json --permission-mode acceptEdits --model sonnet`. It can edit files there; anything else follows your Claude Code permission settings. Orchestrator commits its work after each run.
+- **Claude Code runs headless** in the take's folder: `claude -p --output-format stream-json --permission-mode acceptEdits --model sonnet`. It can edit files there; anything else follows your Claude Code permission settings. Retakes commits its work after each run.
 - The hub listens on 127.0.0.1 only and every API call needs a per-run token.
 
 ## Config
 
-Optional. Put `orch.config.json` in your app's folder:
+Optional. Put `retakes.config.json` in your app's folder:
 
 ```jsonc
 {
@@ -83,13 +83,13 @@ Optional. Put `orch.config.json` in your app's folder:
 ## Commands
 
 ```sh
-orch                # start (the default)
-orch --port 4400    # pick the hub's port
-orch --no-open      # don't open the browser
-orch clean          # remove every take: its folder, its branch and saved state
+retakes                # start (the default)
+retakes --port 4400    # pick the hub's port
+retakes --no-open      # don't open the browser
+retakes clean          # remove every take: its folder, its branch and saved state
 ```
 
-Takes survive restarts. Stop with Ctrl+C and run `orch` again to pick up where you left off.
+Takes survive restarts. Stop with Ctrl+C and run `retakes` again to pick up where you left off.
 
 ## Good to know
 

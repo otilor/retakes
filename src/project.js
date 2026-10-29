@@ -14,13 +14,13 @@ const LOCKFILES = [
   ['npm-shrinkwrap.json', 'npm'],
 ];
 
-const CONFIG_FILE = 'orch.config.json';
+const CONFIG_FILE = 'retakes.config.json';
 
 export async function detectProject(cwd) {
   const dir = path.resolve(cwd);
   const pkgPath = path.join(dir, 'package.json');
   if (!fs.existsSync(pkgPath)) {
-    throw new UserError(`There's no package.json in ${dir}. Run orch in your app's folder.`);
+    throw new UserError(`There's no package.json in ${dir}. Run retakes in your app's folder.`);
   }
   let pkg;
   try {
@@ -34,13 +34,13 @@ export async function detectProject(cwd) {
     gitRoot = (await git(['rev-parse', '--show-toplevel'], dir)).trim();
   } catch {
     throw new UserError(
-      "This folder isn't in a git repository. Orchestrator keeps every take on its own branch, so run `git init` and make a first commit, then try again."
+      "This folder isn't in a git repository. Retakes keeps every take on its own branch, so run `git init` and make a first commit, then try again."
     );
   }
   try {
     await git(['rev-parse', '--verify', 'HEAD'], dir);
   } catch {
-    throw new UserError('Your repository has no commits yet. Make a first commit, then run orch again.');
+    throw new UserError('Your repository has no commits yet. Make a first commit, then run retakes again.');
   }
 
   gitRoot = fs.realpathSync(gitRoot);
@@ -50,7 +50,7 @@ export async function detectProject(cwd) {
   const pm = detectPackageManager(appDir, gitRoot);
   const devMode = resolveDevMode(pkg, config);
   const id = `${slug(pkg.name || path.basename(appDir))}-${hash(appDir).slice(0, 8)}`;
-  const home = process.env.ORCH_HOME ? path.resolve(process.env.ORCH_HOME) : path.join(os.homedir(), '.orch');
+  const home = process.env.RETAKES_HOME ? path.resolve(process.env.RETAKES_HOME) : path.join(os.homedir(), '.retakes');
   const stateDir = path.join(home, 'projects', id);
 
   return {
@@ -143,7 +143,7 @@ export function installCommand(pm) {
 /**
  * How to start a dev server on a given port. Vite and Next.js apps need no config: we run them
  * ourselves with the arguments from the "dev" script. Anything else needs "dev" in
- * orch.config.json.
+ * retakes.config.json.
  */
 export function resolveDevMode(pkg, config) {
   if (config.dev) return { kind: 'command', command: config.dev };
@@ -158,7 +158,7 @@ export function resolveDevMode(pkg, config) {
   if (deps.next) return { kind: 'next', args: [], note: script ? 'ignoring-script' : null };
   if (deps.vite) return { kind: 'vite', args: [], note: script ? 'ignoring-script' : null };
   throw new UserError(
-    'Orchestrator runs Vite and Next.js apps out of the box. For another dev server, add "dev" to orch.config.json with a {port} placeholder, like:\n  { "dev": "npm run dev -- --port {port}" }'
+    'Retakes runs Vite and Next.js apps out of the box. For another dev server, add "dev" to retakes.config.json with a {port} placeholder, like:\n  { "dev": "npm run dev -- --port {port}" }'
   );
 }
 
@@ -178,7 +178,7 @@ export function nextArgsFromScript(script) {
   return out;
 }
 
-/** Split a "vite ..." npm script into arguments, dropping the ones Orchestrator sets itself. */
+/** Split a "vite ..." npm script into arguments, dropping the ones Retakes sets itself. */
 export function viteArgsFromScript(script) {
   const tokens = splitArgs(script.trim()).slice(1);
   const out = [];

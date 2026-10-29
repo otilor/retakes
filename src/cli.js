@@ -4,7 +4,7 @@ import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { detectProject } from './project.js';
-import { Orchestrator } from './orchestrator.js';
+import { Retakes } from './retakes.js';
 import { Hub } from './hub.js';
 import { UserError, findPort, portFree } from './proc.js';
 import * as G from './git.js';
@@ -20,11 +20,11 @@ const bold = c('1');
 const blue = c('38;5;111');
 const red = c('31');
 
-const HELP = `${bold('orch')} ${dim(pkg.version)}  Ask Claude Code for changes to your running app and flip between takes.
+const HELP = `${bold('retakes')} ${dim(pkg.version)}  Ask Claude Code for changes to your running app and flip between takes.
 
 ${bold('Usage')}
-  orch                 Start your dev server with the dock (run it in your app's folder)
-  orch clean           Remove every take: its worktree, its branch and its saved state
+  retakes              Start your dev server with the dock (run it in your app's folder)
+  retakes clean        Remove every take: its worktree, its branch and its saved state
 
 ${bold('Options')}
   --port <n>           Port to open the app on (default 4300)
@@ -34,7 +34,7 @@ ${bold('Options')}
   -h, --help           Show this help
   -v, --version        Show the version
 
-${bold('Config')} (optional, orch.config.json in your app's folder)
+${bold('Config')} (optional, retakes.config.json in your app's folder)
   {
     "port": 4300,
     "dev": "npm run dev -- --port {port}",   ${dim('// only for dev servers other than Vite and Next.js')}
@@ -63,7 +63,7 @@ export function parseArgs(argv) {
       out.port = p;
     } else if (a === '--host' || a.startsWith('--host=')) out.host = val();
     else if (a === 'start' || a === 'clean') out.cmd = a;
-    else throw new UserError(`Unknown option: ${a}. Run orch --help.`);
+    else throw new UserError(`Unknown option: ${a}. Run retakes --help.`);
   }
   return out;
 }
@@ -96,7 +96,7 @@ function log(msg, detail) {
 }
 
 function lockFile(project) {
-  return path.join(project.stateDir, 'orch.pid');
+  return path.join(project.stateDir, 'retakes.pid');
 }
 
 function runningPid(project) {
@@ -111,11 +111,11 @@ function runningPid(project) {
 }
 
 async function start(opts) {
-  if (!fs.existsSync(DOCK_FILE)) throw new UserError('The dock bundle is missing. Run `npm run build` in the orchestrator package.');
+  if (!fs.existsSync(DOCK_FILE)) throw new UserError('The dock bundle is missing. Run `npm run build` in the retakes package.');
   const project = await detectProject(process.cwd());
   fs.mkdirSync(project.stateDir, { recursive: true });
   const other = runningPid(project);
-  if (other) throw new UserError(`orch is already running for this app (process ${other}). Stop it first.`);
+  if (other) throw new UserError(`retakes is already running for this app (process ${other}). Stop it first.`);
 
   const host = opts.host || '127.0.0.1';
   let port = opts.port || project.config.port;
@@ -126,13 +126,13 @@ async function start(opts) {
   }
   fs.writeFileSync(lockFile(project), String(process.pid));
 
-  console.log(`\n${bold('Orchestrator')} ${dim(pkg.version)}  ${project.name}`);
+  console.log(`\n${bold('Retakes')} ${dim(pkg.version)}  ${project.name}`);
   if (project.devMode.note === 'ignoring-script') {
     const tool = project.devMode.kind === 'next' ? 'next dev' : 'vite';
-    console.log(dim(`Your "dev" script doesn't start with ${tool}, so Orchestrator runs ${tool} directly. Set "dev" in orch.config.json if it needs more.`));
+    console.log(dim(`Your "dev" script doesn't start with ${tool}, so Retakes runs ${tool} directly. Set "dev" in retakes.config.json if it needs more.`));
   }
-  const orch = new Orchestrator(project, { log });
-  const hub = new Hub(orch, { port, host, dockFile: DOCK_FILE, log });
+  const retakes = new Retakes(project, { log });
+  const hub = new Hub(retakes, { port, host, dockFile: DOCK_FILE, log });
   await hub.listen();
   const shownHost = host === '127.0.0.1' || host === '0.0.0.0' ? 'localhost' : host;
   const url = `http://${shownHost}:${port}`;
@@ -147,7 +147,7 @@ async function start(opts) {
     const force = setTimeout(() => process.exit(code), 8000);
     force.unref();
     await hub.close().catch(() => {});
-    await orch.shutdown().catch(() => {});
+    await retakes.shutdown().catch(() => {});
     try {
       if (Number(fs.readFileSync(lockFile(project), 'utf8')) === process.pid) fs.unlinkSync(lockFile(project));
     } catch {
@@ -159,15 +159,15 @@ async function start(opts) {
   process.on('SIGTERM', () => stop(0));
   process.on('SIGHUP', () => stop(0));
   process.on('uncaughtException', (err) => {
-    console.error(red('Orchestrator crashed: ') + (err.stack || err.message));
+    console.error(red('Retakes crashed: ') + (err.stack || err.message));
     stop(1);
   });
   process.on('unhandledRejection', (err) => {
-    console.error(red('Orchestrator hit an unexpected error: ') + ((err && err.stack) || err));
+    console.error(red('Retakes hit an unexpected error: ') + ((err && err.stack) || err));
   });
 
   log('main: starting your dev server');
-  const ready = orch.start();
+  const ready = retakes.start();
   console.log(`\n  ${blue('➜')}  ${bold(url)}\n  ${dim('Press . on the page to show or hide the dock. Ctrl+C to stop.')}\n`);
   if (opts.open) openBrowser(url);
   await ready;
@@ -176,13 +176,13 @@ async function start(opts) {
 async function clean(opts) {
   const project = await detectProject(process.cwd());
   const other = runningPid(project);
-  if (other) throw new UserError(`orch is running for this app (process ${other}). Stop it before cleaning.`);
+  if (other) throw new UserError(`retakes is running for this app (process ${other}). Stop it before cleaning.`);
   const roots = [project.takesDir];
   if (fs.existsSync(project.takesDir)) roots.push(fs.realpathSync(project.takesDir));
   const worktrees = (await G.listWorktrees(project.gitRoot)).filter((w) =>
     roots.some((r) => path.resolve(w.dir).startsWith(r + path.sep))
   );
-  const branches = (await G.git(['branch', '--list', 'orch/take-*', '--format=%(refname:short)'], project.gitRoot))
+  const branches = (await G.git(['branch', '--list', 'retakes/take-*', '--format=%(refname:short)'], project.gitRoot))
     .split('\n')
     .map((s) => s.trim())
     .filter(Boolean);
@@ -193,7 +193,7 @@ async function clean(opts) {
   console.log(`This removes ${worktrees.length} take folder${worktrees.length === 1 ? '' : 's'} and ${branches.length} branch${branches.length === 1 ? '' : 'es'} (${branches.join(', ') || 'none'}).`);
   console.log(dim('Work you kept is already merged and stays. Anything else in those takes is deleted.'));
   if (!opts.yes) {
-    if (!process.stdin.isTTY) throw new UserError('Run `orch clean --yes` to confirm.');
+    if (!process.stdin.isTTY) throw new UserError('Run `retakes clean --yes` to confirm.');
     const ok = await ask('Remove them? (y/N) ');
     if (!/^y(es)?$/i.test(ok.trim())) {
       console.log('Nothing removed.');

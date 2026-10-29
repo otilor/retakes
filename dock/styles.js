@@ -97,9 +97,9 @@ button { font: inherit; color: inherit; }
 .badge.warn { background: var(--warn); color: var(--bwarn); }
 .spin {
   position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--accent);
-  border-right-color: transparent; border-bottom-color: transparent; animation: orch-spin .9s linear infinite;
+  border-right-color: transparent; border-bottom-color: transparent; animation: retakes-spin .9s linear infinite;
 }
-@keyframes orch-spin { to { transform: rotate(360deg); } }
+@keyframes retakes-spin { to { transform: rotate(360deg); } }
 .ic { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* tooltips open inward */
@@ -119,9 +119,9 @@ button { font: inherit; color: inherit; }
 .pop {
   position: fixed; width: 360px; max-width: calc(100vw - 24px); max-height: calc(100vh - 96px); overflow: auto;
   padding: 14px; border-radius: 16px; background: var(--pop); color: var(--fg); box-shadow: var(--sh-pop);
-  animation: orch-rise .18s ease-out; overscroll-behavior: contain;
+  animation: retakes-rise .18s ease-out; overscroll-behavior: contain;
 }
-@keyframes orch-rise { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+@keyframes retakes-rise { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
 .ph { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .ph h2 { margin: 0; font: 600 14px/20px system-ui, -apple-system, "Segoe UI", sans-serif; }
 .pill { margin-left: auto; padding: 3px 8px; border-radius: 999px; font: 600 11px/14px system-ui, sans-serif; background: var(--field); color: var(--muted); white-space: nowrap; }
@@ -129,7 +129,7 @@ button { font: inherit; color: inherit; }
 .quote { margin: 0 0 10px; padding: 8px 10px; border-radius: 10px; background: var(--field); color: var(--fg); font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
 .quote small { display: block; margin-top: 4px; color: var(--muted); font-size: 11.5px; }
 .line { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--muted); font-size: 12.5px; line-height: 18px; }
-.line .mini-spin { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: orch-spin .9s linear infinite; }
+.line .mini-spin { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: retakes-spin .9s linear infinite; }
 .said { margin: 0 0 10px; color: var(--muted); font-size: 12.5px; line-height: 18px; overflow-wrap: anywhere; }
 .said b { color: var(--fg); font-weight: 600; }
 .note { margin: 0 0 10px; padding: 9px 11px; border-radius: 10px; font-size: 12.5px; line-height: 18px; overflow-wrap: anywhere; }
@@ -182,7 +182,7 @@ button { font: inherit; color: inherit; }
 .fmark.pass { background: var(--ok); color: var(--num); }
 .fmark.fail { background: var(--fail); color: var(--bfail); }
 .fmark.warn { background: var(--warn); color: var(--bwarn); }
-.fmark .mini-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: orch-spin .9s linear infinite; }
+.fmark .mini-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: retakes-spin .9s linear infinite; }
 .fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .fmeta { flex: none; color: var(--muted); font-size: 12px; }
 .flow.fail .fmeta { color: var(--fail); }
@@ -192,10 +192,10 @@ button { font: inherit; color: inherit; }
 .rec {
   position: fixed; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 24px);
   padding: 6px 6px 6px 14px; border-radius: 16px; background: var(--pop); color: var(--fg); box-shadow: var(--sh-pop);
-  animation: orch-rise .18s ease-out;
+  animation: retakes-rise .18s ease-out;
 }
-.rec-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #ff4d4d; box-shadow: 0 0 0 4px rgba(255,77,77,.22); animation: orch-pulse 1.4s ease-in-out infinite; }
-@keyframes orch-pulse { 50% { opacity: .45; } }
+.rec-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #ff4d4d; box-shadow: 0 0 0 4px rgba(255,77,77,.22); animation: retakes-pulse 1.4s ease-in-out infinite; }
+@keyframes retakes-pulse { 50% { opacity: .45; } }
 .rec-text { display: flex; flex-direction: column; min-width: 0; margin: 0 8px 0 4px; }
 .rec-text b { font-weight: 600; white-space: nowrap; }
 .rec-text small { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }

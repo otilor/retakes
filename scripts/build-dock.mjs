@@ -17,7 +17,7 @@ await build({
   jsx: 'automatic',
   define: { 'process.env.NODE_ENV': '"production"' },
   legalComments: 'none',
-  banner: { js: '/* Orchestrator dock. Bundles React, Motion and notch-toast (MIT). */' },
+  banner: { js: '/* Retakes dock. Bundles React, Motion and notch-toast (MIT). */' },
   logLevel: 'warning',
 });
 

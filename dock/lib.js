@@ -1,13 +1,13 @@
 // Small helpers shared by the dock: the hub API, switching versions, and describing elements.
 
-export const CFG = window.__ORCH__ || {};
-const COOKIE = '__orch_v';
-const RESTORE = '__orch_restore';
+export const CFG = window.__RETAKES__ || {};
+const COOKIE = '__retakes_v';
+const RESTORE = '__retakes_restore';
 
 export async function api(path, body) {
-  const res = await fetch(`/__orch/api/${path}`, {
+  const res = await fetch(`/__retakes/api/${path}`, {
     method: body === undefined ? 'GET' : 'POST',
-    headers: { 'x-orch-token': CFG.token, 'content-type': 'application/json' },
+    headers: { 'x-retakes-token': CFG.token, 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: 'same-origin',
   });
@@ -17,12 +17,12 @@ export async function api(path, body) {
   } catch {
     /* not JSON */
   }
-  if (!res.ok) throw new Error(data.error || `Orchestrator answered ${res.status}.`);
+  if (!res.ok) throw new Error(data.error || `Retakes answered ${res.status}.`);
   return data;
 }
 
 export function readCookie() {
-  const m = document.cookie.match(/(?:^|;\s*)__orch_v=([^;]*)/);
+  const m = document.cookie.match(/(?:^|;\s*)__retakes_v=([^;]*)/);
   return m ? decodeURIComponent(m[1]) : null;
 }
 

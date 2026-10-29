@@ -8,7 +8,7 @@ import { commitAll, addWorktree, removeWorktree, mergeBranch, branchExists, chan
 import { findPort, releasePort, Tail, stripAnsi } from '../../src/proc.js';
 
 function repo() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'orch-git-'));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'retakes-git-'));
   const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' }).toString().trim();
   git('init', '-q', '-b', 'main');
   git('config', 'user.email', 't@example.com');
@@ -33,31 +33,31 @@ test('commitAll leaves out copied files, ignored or not', async () => {
 
 test('a take branch merges back with a merge commit and cleans up', async () => {
   const { dir, git } = repo();
-  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'orch-wt-')), 't1');
-  await addWorktree(dir, wt, 'orch/take-1', 'HEAD');
+  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'retakes-wt-')), 't1');
+  await addWorktree(dir, wt, 'retakes/take-1', 'HEAD');
   fs.writeFileSync(path.join(wt, 'b.txt'), 'new\n');
   await commitAll(wt, 'take 1');
-  assert.deepEqual(await changedFiles(dir, 'main', 'orch/take-1'), ['b.txt']);
-  await mergeBranch(dir, 'orch/take-1', 'Keep agent-1');
+  assert.deepEqual(await changedFiles(dir, 'main', 'retakes/take-1'), ['b.txt']);
+  await mergeBranch(dir, 'retakes/take-1', 'Keep agent-1');
   assert.equal(git('log', '-1', '--format=%s'), 'Keep agent-1');
   assert.equal(git('rev-list', '--count', '--merges', 'HEAD'), '1');
-  await removeWorktree(dir, wt, 'orch/take-1');
+  await removeWorktree(dir, wt, 'retakes/take-1');
   assert.equal(fs.existsSync(wt), false);
-  assert.equal(await branchExists(dir, 'orch/take-1'), false);
+  assert.equal(await branchExists(dir, 'retakes/take-1'), false);
 });
 
 test('a conflicting merge is aborted and leaves the checkout clean', async () => {
   const { dir, git } = repo();
-  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'orch-wt-')), 't1');
-  await addWorktree(dir, wt, 'orch/take-1', 'HEAD');
+  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'retakes-wt-')), 't1');
+  await addWorktree(dir, wt, 'retakes/take-1', 'HEAD');
   fs.writeFileSync(path.join(wt, 'a.txt'), 'take\n');
   await commitAll(wt, 'take 1');
   fs.writeFileSync(path.join(dir, 'a.txt'), 'main\n');
   git('commit', '-q', '-am', 'main edit');
-  await assert.rejects(mergeBranch(dir, 'orch/take-1', 'Keep agent-1'));
+  await assert.rejects(mergeBranch(dir, 'retakes/take-1', 'Keep agent-1'));
   assert.equal(git('status', '--porcelain'), '');
   assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'main\n');
-  await removeWorktree(dir, wt, 'orch/take-1');
+  await removeWorktree(dir, wt, 'retakes/take-1');
 });
 
 test('findPort never hands out the same port twice, even when asked at once', async () => {
@@ -76,18 +76,18 @@ test('Tail keeps the last lines across chunk boundaries', () => {
 
 test('Keep merges over an identical untracked file a dev server wrote, but never a different one', async () => {
   const { dir, git } = repo();
-  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'orch-wt-')), 't1');
-  await addWorktree(dir, wt, 'orch/take-1', 'HEAD');
+  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'retakes-wt-')), 't1');
+  await addWorktree(dir, wt, 'retakes/take-1', 'HEAD');
   fs.writeFileSync(path.join(wt, 'AGENTS.md'), 'generated\n');
   fs.writeFileSync(path.join(wt, 'b.txt'), 'new\n');
   await commitAll(wt, 'take 1');
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'mine, different\n');
-  await assert.rejects(mergeBranch(dir, 'orch/take-1', 'Keep agent-1'), /overwritten/);
+  await assert.rejects(mergeBranch(dir, 'retakes/take-1', 'Keep agent-1'), /overwritten/);
   assert.equal(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), 'mine, different\n');
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'generated\n');
-  await mergeBranch(dir, 'orch/take-1', 'Keep agent-1');
+  await mergeBranch(dir, 'retakes/take-1', 'Keep agent-1');
   assert.equal(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), 'generated\n');
   assert.equal(git('status', '--porcelain'), '');
-  await removeWorktree(dir, wt, 'orch/take-1');
+  await removeWorktree(dir, wt, 'retakes/take-1');
   assert.deepEqual(untrackedInTheWay('error: The following untracked working tree files would be overwritten by merge:\n\tAGENTS.md\n\tx/y.md\nPlease move or remove them before you merge.'), ['AGENTS.md', 'x/y.md']);
 });

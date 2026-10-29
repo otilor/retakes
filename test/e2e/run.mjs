@@ -1,4 +1,4 @@
-// End-to-end test: a real Vite + React app, the real orch command, a real browser, and a
+// End-to-end test: a real Vite + React app, the real retakes command, a real browser, and a
 // mock Claude Code that edits files the way the real one does. Run with `npm run test:e2e`.
 import fs from 'node:fs';
 import http from 'node:http';
@@ -11,7 +11,7 @@ import { makeApp, ROOT } from './fixture.mjs';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 
-const BASE = process.env.ORCH_E2E_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'orch-e2e-'));
+const BASE = process.env.RETAKES_E2E_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'retakes-e2e-'));
 const SHOTS = path.join(BASE, 'shots');
 fs.mkdirSync(SHOTS, { recursive: true });
 const HOME = fs.mkdtempSync(path.join(BASE, 'home-'));
@@ -38,7 +38,7 @@ async function step(name, fn) {
     } catch {
       /* no page */
     }
-    console.log(`\norch output:\n${orchOut.slice(-4000)}`);
+    console.log(`\nretakes output:\n${retakesOut.slice(-4000)}`);
     await shutdown();
     process.exit(1);
   }
@@ -65,22 +65,22 @@ console.log(`Setting up a fixture app in ${BASE}`);
 const { dir: APP, git } = makeApp({ base: BASE, config: { agent: { command: `node ${MOCK}` } } });
 console.log(`App: ${APP}\nHub port: ${PORT}`);
 
-let orch = null;
-let orchOut = '';
-function startOrch() {
-  orch = spawn(process.execPath, [path.join(ROOT, 'bin', 'orch.js'), '--no-open', '--port', String(PORT)], {
+let retakes = null;
+let retakesOut = '';
+function startRetakes() {
+  retakes = spawn(process.execPath, [path.join(ROOT, 'bin', 'retakes.js'), '--no-open', '--port', String(PORT)], {
     cwd: APP,
-    env: { ...process.env, ORCH_HOME: HOME, ORCH_MOCK_LOG: MOCK_LOG, ORCH_MOCK_STEP_MS: '900' },
+    env: { ...process.env, RETAKES_HOME: HOME, RETAKES_MOCK_LOG: MOCK_LOG, RETAKES_MOCK_STEP_MS: '900' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  orch.stdout.on('data', (d) => (orchOut += d));
-  orch.stderr.on('data', (d) => (orchOut += d));
-  return until(() => /main: dev server ready/.test(orchOut), 'main dev server ready', 60000);
+  retakes.stdout.on('data', (d) => (retakesOut += d));
+  retakes.stderr.on('data', (d) => (retakesOut += d));
+  return until(() => /main: dev server ready/.test(retakesOut), 'main dev server ready', 60000);
 }
-async function stopOrch() {
-  if (!orch || orch.exitCode !== null) return;
-  const done = new Promise((r) => orch.once('exit', r));
-  orch.kill('SIGINT');
+async function stopRetakes() {
+  if (!retakes || retakes.exitCode !== null) return;
+  const done = new Promise((r) => retakes.once('exit', r));
+  retakes.kill('SIGINT');
   await done;
 }
 
@@ -93,18 +93,18 @@ const URL0 = `http://localhost:${PORT}/`;
 
 async function shutdown() {
   await browser.close().catch(() => {});
-  await stopOrch().catch(() => {});
+  await stopRetakes().catch(() => {});
 }
 
-const dock = () => page.locator('orch-dock .dock');
-const tile = (label) => page.locator(`orch-dock .tiles button[aria-label^="${label},"]`);
-const token = () => page.evaluate(() => window.__ORCH__.token);
+const dock = () => page.locator('retakes-dock .dock');
+const tile = (label) => page.locator(`retakes-dock .tiles button[aria-label^="${label},"]`);
+const token = () => page.evaluate(() => window.__RETAKES__.token);
 async function apiCall(p, body) {
   return page.evaluate(
     async ([p, body]) => {
-      const r = await fetch(`/__orch/api/${p}`, {
+      const r = await fetch(`/__retakes/api/${p}`, {
         method: body === undefined ? 'GET' : 'POST',
-        headers: { 'x-orch-token': window.__ORCH__.token, 'content-type': 'application/json' },
+        headers: { 'x-retakes-token': window.__RETAKES__.token, 'content-type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
       return { status: r.status, body: await r.json().catch(() => null) };
@@ -133,64 +133,64 @@ async function waitReady(id, timeout = 180000) {
 }
 async function toastText() {
   return page.evaluate(() => {
-    const host = document.querySelector('orch-dock');
+    const host = document.querySelector('retakes-dock');
     const el = host && host.shadowRoot.querySelector('.nt-root');
     return el ? el.textContent : '';
   });
 }
 
 try {
-  await step('orch starts the app and serves it on one port', async () => {
-    await startOrch();
+  await step('retakes starts the app and serves it on one port', async () => {
+    await startRetakes();
     await page.goto(URL0);
     await dock().waitFor({ timeout: 10000 });
     ok((await page.locator('.greeting').textContent()) === 'hello from env', 'the app renders');
-    ok((await page.evaluate(() => window.__ORCH__.v)) === 'main', 'main is served');
+    ok((await page.evaluate(() => window.__RETAKES__.v)) === 'main', 'main is served');
   });
 
   await step('the dock shows main and a disabled Keep', async () => {
     await until(async () => (await tile('main').count()) === 1, 'main tile');
-    ok(await page.locator('orch-dock button[aria-label^="Keep"]').isDisabled(), 'Keep is disabled on main');
+    ok(await page.locator('retakes-dock button[aria-label^="Keep"]').isDisabled(), 'Keep is disabled on main');
     ok((await dock().getAttribute('data-edge')) === 'bottom', 'docked at the bottom');
     await page.screenshot({ path: path.join(SHOTS, '01-main.png') });
   });
 
   await step('the API refuses requests without the token or from other hosts', async () => {
-    const res = await fetch(`http://127.0.0.1:${PORT}/__orch/api/takes`, { method: 'POST', body: '{"prompt":"x"}' });
+    const res = await fetch(`http://127.0.0.1:${PORT}/__retakes/api/takes`, { method: 'POST', body: '{"prompt":"x"}' });
     ok(res.status === 403, `no token -> 403 (got ${res.status})`);
     const t = await token();
     const status2 = await new Promise((resolve, reject) => {
       http
-        .get({ host: '127.0.0.1', port: PORT, path: '/__orch/api/state', headers: { 'x-orch-token': t, host: 'evil.example' } }, (r) => {
+        .get({ host: '127.0.0.1', port: PORT, path: '/__retakes/api/state', headers: { 'x-retakes-token': t, host: 'evil.example' } }, (r) => {
           r.resume();
           resolve(r.statusCode);
         })
         .on('error', reject);
     });
     ok(status2 === 403, `foreign host -> 403 (got ${status2})`);
-    const res4 = await fetch(`http://127.0.0.1:${PORT}/__orch/api/state`, { headers: { 'x-orch-token': t } });
+    const res4 = await fetch(`http://127.0.0.1:${PORT}/__retakes/api/state`, { headers: { 'x-retakes-token': t } });
     ok(res4.status === 200, `right token on localhost -> 200 (got ${res4.status})`);
-    const res3 = await fetch(`http://127.0.0.1:${PORT}/__orch/events?t=nope`);
+    const res3 = await fetch(`http://127.0.0.1:${PORT}/__retakes/events?t=nope`);
     ok(res3.status === 403, 'events need the token');
   });
 
   await step('Prompt: point at the search button, describe the change, start a take', async () => {
     await page.evaluate(() => scrollTo(0, 500));
-    await page.locator('orch-dock button[aria-label="Prompt a change"]').click();
-    await page.locator('orch-dock .pick-hint').waitFor();
+    await page.locator('retakes-dock button[aria-label="Prompt a change"]').click();
+    await page.locator('retakes-dock .pick-hint').waitFor();
     await page.evaluate(() => scrollTo(0, 0));
     const btn = page.locator('.search-button');
     const box = await btn.boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.locator('orch-dock .pick-box').waitFor();
-    ok((await page.locator('orch-dock .pick-tag').textContent()).includes('SearchBar'), 'the picker names the React component');
+    await page.locator('retakes-dock .pick-box').waitFor();
+    ok((await page.locator('retakes-dock .pick-tag').textContent()).includes('SearchBar'), 'the picker names the React component');
     await page.screenshot({ path: path.join(SHOTS, '02-picking.png') });
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-    await page.locator('orch-dock .chip').waitFor();
-    ok((await page.locator('orch-dock .chip').textContent()).includes('SearchBar'), 'the composer shows the element');
-    await page.locator('orch-dock textarea').fill('make the search bar larger');
+    await page.locator('retakes-dock .chip').waitFor();
+    ok((await page.locator('retakes-dock .chip').textContent()).includes('SearchBar'), 'the composer shows the element');
+    await page.locator('retakes-dock textarea').fill('make the search bar larger');
     await page.screenshot({ path: path.join(SHOTS, '03-compose.png') });
-    await page.locator('orch-dock textarea').press('Enter');
+    await page.locator('retakes-dock textarea').press('Enter');
     await until(async () => (await toastText()).includes('agent-1 is on it'), 'the "on it" toast');
     await until(async () => (await tile('agent-1').count()) === 1, 'agent-1 tile');
   });
@@ -217,9 +217,9 @@ try {
     t1 = await waitReady('t1');
     ok(t1.agent.status === 'done', `agent done (${t1.agent.status}: ${t1.agent.error})`);
     ok(t1.lastResult && t1.lastResult.includes('Done'), 'result text kept');
-    const log = git('log', '--format=%s', 'orch/take-1', '-n', '1').trim();
+    const log = git('log', '--format=%s', 'retakes/take-1', '-n', '1').trim();
     ok(log === 'agent-1: make the search bar larger', `commit message (${log})`);
-    const files = git('show', '--name-only', '--format=', 'orch/take-1').trim();
+    const files = git('show', '--name-only', '--format=', 'retakes/take-1').trim();
     ok(files === 'src/SearchBar.jsx', `only the edited file is committed (${files})`);
     await until(async () => (await toastText()).includes('agent-1 is done'), 'done toast');
   });
@@ -229,23 +229,23 @@ try {
     await page.waitForTimeout(150);
     await tile('agent-1').click();
     await page.waitForLoadState('load');
-    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 't1', 'agent-1 served');
+    await until(async () => (await page.evaluate(() => window.__RETAKES__ && window.__RETAKES__.v)) === 't1', 'agent-1 served');
     await until(async () => (await page.locator('.search-button').textContent()) === 'Search big 1', 'the change shows');
     await until(async () => Math.abs((await page.evaluate(() => scrollY)) - 640) < 4, 'scroll restored', 5000);
     ok((await page.locator('.greeting').textContent()) === 'hello from env', 'env file works in the take');
     ok(page.url() === URL0, 'same URL');
-    ok((await page.locator('orch-dock .now').textContent()).includes('agent-1'), 'Now label says agent-1');
+    ok((await page.locator('retakes-dock .now').textContent()).includes('agent-1'), 'Now label says agent-1');
     await until(async () => (await toastText()).includes('Viewing agent-1'), 'viewing toast');
     await page.screenshot({ path: path.join(SHOTS, '05-viewing-take.png') });
   });
 
   await step('a follow-up resumes the same session and lands live without a reload', async () => {
     await page.evaluate(() => (window.__noReload = 1));
-    await page.locator('orch-dock .now').click();
-    await page.locator('orch-dock .pop textarea').waitFor();
+    await page.locator('retakes-dock .now').click();
+    await page.locator('retakes-dock .pop textarea').waitFor();
     await page.screenshot({ path: path.join(SHOTS, '06-popover.png') });
-    await page.locator('orch-dock .pop textarea').fill('make the search button blue');
-    await page.locator('orch-dock .pop button', { hasText: 'Send' }).click();
+    await page.locator('retakes-dock .pop textarea').fill('make the search button blue');
+    await page.locator('retakes-dock .pop button', { hasText: 'Send' }).click();
     await until(
       async () => (await page.locator('.search-button').evaluate((e) => getComputedStyle(e).backgroundColor)) === 'rgb(43, 69, 224)',
       'button turns blue live',
@@ -257,7 +257,7 @@ try {
     ok(second.args.includes('--resume'), 'resumes');
     ok(second.args[second.args.indexOf('--resume') + 1] === calls[0].args[calls[0].args.indexOf('--session-id') + 1], 'same session id');
     await waitReady('t1');
-    const n = Number(git('rev-list', '--count', 'main..orch/take-1').trim());
+    const n = Number(git('rev-list', '--count', 'main..retakes/take-1').trim());
     ok(n === 2, `two commits on the take (${n})`);
   });
 
@@ -296,12 +296,12 @@ try {
   });
 
   await step('Compare shows two versions side by side and scrolls them together', async () => {
-    await page.locator('orch-dock button[aria-label="Compare side by side"]').click();
-    await page.locator('orch-dock .cmp').waitFor();
-    const frames = page.locator('orch-dock .cmp iframe');
+    await page.locator('retakes-dock button[aria-label="Compare side by side"]').click();
+    await page.locator('retakes-dock .cmp').waitFor();
+    const frames = page.locator('retakes-dock .cmp iframe');
     await until(async () => (await frames.count()) === 2, 'two panes');
-    const left = page.frameLocator('orch-dock .cmp .pane:nth-child(1) iframe');
-    const right = page.frameLocator('orch-dock .cmp .pane:nth-child(2) iframe');
+    const left = page.frameLocator('retakes-dock .cmp .pane:nth-child(1) iframe');
+    const right = page.frameLocator('retakes-dock .cmp .pane:nth-child(2) iframe');
     await until(async () => (await left.locator('.search-button').textContent()) === 'Search big 1', 'left is agent-1', 20000);
     await until(async () => (await right.locator('.search-button').textContent()) === 'Search', 'right is main', 20000);
     await page.waitForTimeout(500);
@@ -311,39 +311,39 @@ try {
     await until(async () => Math.abs((await panes[1].evaluate(() => scrollY)) - 700) < 4, 'the other pane follows', 5000);
     await page.screenshot({ path: path.join(SHOTS, '08-compare.png') });
     await page.keyboard.press('Escape');
-    await until(async () => (await page.locator('orch-dock .cmp').count()) === 0, 'compare closes');
+    await until(async () => (await page.locator('retakes-dock .cmp').count()) === 0, 'compare closes');
   });
 
   await step('Keep merges a take into your branch and removes it', async () => {
     await tile('agent-2').click();
-    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 't2', 'agent-2 served');
-    await page.locator('orch-dock button[aria-label="Keep agent-2"]').click();
+    await until(async () => (await page.evaluate(() => window.__RETAKES__ && window.__RETAKES__.v)) === 't2', 'agent-2 served');
+    await page.locator('retakes-dock button[aria-label="Keep agent-2"]').click();
     await page.screenshot({ path: path.join(SHOTS, '09-keep.png') });
-    await page.locator('orch-dock .pop button', { hasText: 'Keep agent-2' }).click();
-    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 'main', 'back on main', 20000);
+    await page.locator('retakes-dock .pop button', { hasText: 'Keep agent-2' }).click();
+    await until(async () => (await page.evaluate(() => window.__RETAKES__ && window.__RETAKES__.v)) === 'main', 'back on main', 20000);
     await until(async () => (await page.locator('.search-button').textContent()) === 'Search big 2', 'main has the change');
     const subject = git('log', '-1', '--format=%s').trim();
     ok(subject.startsWith('Keep agent-2'), `merge commit (${subject})`);
-    ok(!git('branch', '--list', 'orch/take-2').trim(), 'branch removed');
+    ok(!git('branch', '--list', 'retakes/take-2').trim(), 'branch removed');
     ok(!(await version('t2')), 'take removed');
     ok(!fs.existsSync(path.join(HOME, 'projects')) || !fs.readdirSync(path.join(HOME, 'projects')).some((p) => fs.existsSync(path.join(HOME, 'projects', p, 'takes', 't2'))), 'folder removed');
   });
 
   await step('Discard removes a take, its branch and its folder', async () => {
     await tile('agent-1').click();
-    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 't1', 'agent-1 served');
-    await page.locator('orch-dock .now').click();
-    const discard = page.locator('orch-dock .pop button', { hasText: 'Discard' });
+    await until(async () => (await page.evaluate(() => window.__RETAKES__ && window.__RETAKES__.v)) === 't1', 'agent-1 served');
+    await page.locator('retakes-dock .now').click();
+    const discard = page.locator('retakes-dock .pop button', { hasText: 'Discard' });
     await discard.click();
-    await page.locator('orch-dock .pop button', { hasText: 'Click again to discard' }).click();
-    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 'main', 'back on main', 20000);
-    ok(!git('branch', '--list', 'orch/take-1').trim(), 'branch removed');
+    await page.locator('retakes-dock .pop button', { hasText: 'Click again to discard' }).click();
+    await until(async () => (await page.evaluate(() => window.__RETAKES__ && window.__RETAKES__.v)) === 'main', 'back on main', 20000);
+    ok(!git('branch', '--list', 'retakes/take-1').trim(), 'branch removed');
     ok(!(await version('t1')), 'take removed');
     ok(!git('worktree', 'list').includes('takes/t1'), 'worktree removed');
   });
 
   await step('the dock docks to the left as a column and remembers it', async () => {
-    const handle = page.locator('orch-dock .handle');
+    const handle = page.locator('retakes-dock .handle');
     const hb = await handle.boundingBox();
     await page.mouse.move(hb.x + 20, hb.y + 20);
     await page.mouse.down();
@@ -361,7 +361,7 @@ try {
     ok((await dock().getAttribute('data-edge')) === 'left', 'remembered after reload');
     // Put it back, once it has settled from the reload.
     await page.waitForTimeout(600);
-    const hb2 = await page.locator('orch-dock .handle').boundingBox();
+    const hb2 = await page.locator('retakes-dock .handle').boundingBox();
     await page.mouse.move(hb2.x + 20, hb2.y + 20);
     await page.mouse.down();
     await page.mouse.move(600, 500, { steps: 6 });
@@ -372,7 +372,7 @@ try {
 
   await step('docked at the top, notifications move to the bottom', async () => {
     await page.waitForTimeout(600); // let the dock settle from the last drag
-    const hb = await page.locator('orch-dock .handle').boundingBox();
+    const hb = await page.locator('retakes-dock .handle').boundingBox();
     await page.mouse.move(hb.x + 20, hb.y + 20);
     await page.mouse.down();
     await page.mouse.move(600, 300, { steps: 6 });
@@ -380,22 +380,22 @@ try {
     await page.mouse.up();
     await until(async () => (await dock().getAttribute('data-edge')) === 'top', 'docked at the top');
     // "Hide until reload" shows a notification; bring the dock straight back to compare positions.
-    await page.locator('orch-dock .handle').click({ button: 'right' });
-    await page.locator('orch-dock .pop button', { hasText: 'Hide until reload' }).click();
+    await page.locator('retakes-dock .handle').click({ button: 'right' });
+    await page.locator('retakes-dock .pop button', { hasText: 'Hide until reload' }).click();
     await until(async () => (await toastText()).includes('Dock hidden'), 'hidden toast');
     await page.keyboard.press('.');
     await dock().waitFor();
     await page.waitForTimeout(500);
     const d = await dock().boundingBox();
     const t = await page.evaluate(() => {
-      const el = document.querySelector('orch-dock').shadowRoot.querySelector('.nt-root');
+      const el = document.querySelector('retakes-dock').shadowRoot.querySelector('.nt-root');
       const r = [...el.querySelectorAll('*')].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 40 && r.height > 20)[0];
       return r && { top: r.top, bottom: r.bottom };
     });
     ok(t && t.top > 400, `toast at the bottom (${JSON.stringify(t)})`);
     ok(t.top > d.y + d.height, 'toast and dock do not overlap');
     await page.screenshot({ path: path.join(SHOTS, '10b-top.png') });
-    const hb2 = await page.locator('orch-dock .handle').boundingBox();
+    const hb2 = await page.locator('retakes-dock .handle').boundingBox();
     await page.mouse.move(hb2.x + 20, hb2.y + 20);
     await page.mouse.down();
     await page.mouse.move(600, 500, { steps: 6 });
@@ -407,13 +407,13 @@ try {
   await step('P opens the pick tool, but not while typing in the app', async () => {
     await page.locator('.search-input').click();
     await page.keyboard.type('p');
-    ok(!(await page.locator('orch-dock .pick-hint').isVisible()), 'typing p in the app does nothing');
+    ok(!(await page.locator('retakes-dock .pick-hint').isVisible()), 'typing p in the app does nothing');
     await page.locator('.search-input').fill('');
     await page.locator('body').click({ position: { x: 600, y: 110 } });
     await page.keyboard.press('p');
-    await page.locator('orch-dock .pick-hint').waitFor();
+    await page.locator('retakes-dock .pick-hint').waitFor();
     await page.keyboard.press('Escape');
-    await until(async () => !(await page.locator('orch-dock .pick-hint').isVisible()), 'picker closed');
+    await until(async () => !(await page.locator('retakes-dock .pick-hint').isVisible()), 'picker closed');
   });
 
   await step('. collapses and opens the dock; clicking the handle does too', async () => {
@@ -423,9 +423,9 @@ try {
     await page.screenshot({ path: path.join(SHOTS, '11-collapsed.png') });
     await page.keyboard.press('.');
     await until(async () => !(await dock().getAttribute('class')).includes('closed'), 'open');
-    await page.locator('orch-dock .handle').click();
+    await page.locator('retakes-dock .handle').click();
     await until(async () => (await dock().getAttribute('class')).includes('closed'), 'collapsed by click');
-    await page.locator('orch-dock .handle').click();
+    await page.locator('retakes-dock .handle').click();
     await until(async () => !(await dock().getAttribute('class')).includes('closed'), 'open by click');
     await page.locator('.search-input').fill('a.b');
     ok((await page.locator('.search-input').inputValue()) === 'a.b', 'typing . in the app does not toggle the dock');
@@ -454,8 +454,8 @@ try {
     ok(v.agent.error.includes('/login') && v.agent.error.includes('OAuth session expired'), 'says how, keeps the original');
     ok(v.canRetry, 'can retry');
     await until(async () => (await toastText()).includes('needs you to sign in'), 'sign-in toast');
-    await page.locator('orch-dock .nt-root button', { hasText: 'Details' }).click();
-    const retry = page.locator('orch-dock .pop button', { hasText: 'Retry' });
+    await page.locator('retakes-dock .nt-root button', { hasText: 'Details' }).click();
+    const retry = page.locator('retakes-dock .pop button', { hasText: 'Retry' });
     await retry.waitFor();
     await page.screenshot({ path: path.join(SHOTS, '12-signin.png') });
     const first = mockCalls().at(-1);
@@ -483,28 +483,28 @@ try {
     await waitReady(id);
   });
 
-  await step('takes survive a restart of orch', async () => {
+  await step('takes survive a restart of retakes', async () => {
     const before = (await state()).versions.filter((v) => v.kind === 'take').map((v) => v.id);
     ok(before.length === 1, 'one take left');
-    await stopOrch();
-    ok(/Stopping dev servers/.test(orchOut), 'clean shutdown');
-    orchOut = '';
-    await startOrch();
+    await stopRetakes();
+    ok(/Stopping dev servers/.test(retakesOut), 'clean shutdown');
+    retakesOut = '';
+    await startRetakes();
     await page.reload();
     await dock().waitFor();
     const v = await waitReady(before[0], 60000);
     ok(v.agent.status === 'stopped', 'stopped status kept');
-    ok(!/installing dependencies/.test(orchOut), 'no reinstall on restart');
+    ok(!/installing dependencies/.test(retakesOut), 'no reinstall on restart');
   });
 
-  await step('orch clean removes every take', async () => {
-    await stopOrch();
-    const out = execFileSync(process.execPath, [path.join(ROOT, 'bin', 'orch.js'), 'clean', '--yes'], {
+  await step('retakes clean removes every take', async () => {
+    await stopRetakes();
+    const out = execFileSync(process.execPath, [path.join(ROOT, 'bin', 'retakes.js'), 'clean', '--yes'], {
       cwd: APP,
-      env: { ...process.env, ORCH_HOME: HOME },
+      env: { ...process.env, RETAKES_HOME: HOME },
     }).toString();
     ok(/Cleaned/.test(out), out);
-    ok(!git('branch', '--list', 'orch/*').trim(), 'no orch branches');
+    ok(!git('branch', '--list', 'retakes/*').trim(), 'no retakes branches');
     ok(git('worktree', 'list').trim().split('\n').length === 1, 'only the main worktree');
     ok(git('status', '--porcelain').trim() === '', 'your checkout is clean');
   });

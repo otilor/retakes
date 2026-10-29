@@ -5,7 +5,7 @@ import { Mark, Branch, CompareIcon, PromptIcon, KeepIcon, CloseIcon, FlowIcon } 
 import { Recorder, savedRecording, startRecording } from './record.jsx';
 import { Watcher, savedWatch, startWatch } from './replay.jsx';
 
-const PREFS_KEY = '__orch_ui';
+const PREFS_KEY = '__retakes_ui';
 const GAP = 12;
 const DEFAULT_PREFS = { edge: 'bottom', align: 'center', open: true, theme: 'ink' };
 
@@ -174,7 +174,7 @@ export default function App({ host, restored, watcher }) {
     let dead = false;
     const connect = () => {
       if (dead) return;
-      es = new EventSource(`/__orch/events?t=${encodeURIComponent(CFG.token)}`);
+      es = new EventSource(`/__retakes/events?t=${encodeURIComponent(CFG.token)}`);
       es.addEventListener('state', (e) => {
         setSnap(JSON.parse(e.data));
         setConn('live');
@@ -196,7 +196,7 @@ export default function App({ host, restored, watcher }) {
       } catch (err) {
         if (/restarted/i.test(err.message)) {
           setConn('stale');
-          toast.warning('Orchestrator restarted. Reload the page to reconnect.', {
+          toast.warning('Retakes restarted. Reload the page to reconnect.', {
             duration: 0,
             dismissible: true,
             action: { label: 'Reload', onClick: () => location.reload() },
@@ -421,7 +421,7 @@ export default function App({ host, restored, watcher }) {
   const nowStatus = takeStatus(now);
   const nowBroken = brokenFlows(now).length;
   const stCls = nowStatus.key === 'ok' ? '' : nowStatus.key;
-  const handleTip = conn === 'lost' ? 'Lost touch with orch. Is it still running?' : conn === 'stale' ? 'Orchestrator restarted: reload the page' : prefs.open ? 'Drag to move · click to collapse' : 'Drag to move · click to open';
+  const handleTip = conn === 'lost' ? 'Lost touch with retakes. Is it still running?' : conn === 'stale' ? 'Retakes restarted: reload the page' : prefs.open ? 'Drag to move · click to collapse' : 'Drag to move · click to open';
 
   return (
     <div className={`root ${theme}`}>
@@ -435,7 +435,7 @@ export default function App({ host, restored, watcher }) {
           data-edge={edge}
           data-orient={orient}
           role="toolbar"
-          aria-label="Orchestrator"
+          aria-label="Retakes"
           aria-orientation={orient === 'h' ? 'horizontal' : 'vertical'}
           onKeyDown={onBarKey}
         >
@@ -554,7 +554,7 @@ export default function App({ host, restored, watcher }) {
       )}
 
       {pop && !hidden && mode !== 'compare' && mode !== 'record' && mode !== 'watch' && (
-        <div className={`pop${pop.kind === 'settings' ? ' menu' : ''}`} style={popStyle(edge, pos, size, vp, pop.kind === 'settings' ? 240 : 360)} role="dialog" aria-label="Orchestrator">
+        <div className={`pop${pop.kind === 'settings' ? ' menu' : ''}`} style={popStyle(edge, pos, size, vp, pop.kind === 'settings' ? 240 : 360)} role="dialog" aria-label="Retakes">
           {pop.kind === 'version' && <VersionPanel v={versions.find((x) => x.id === pop.id)} project={snap && snap.project} onClose={() => setPop(null)} setPop={setPop} />}
           {pop.kind === 'compose' && (
             <Composer servedTake={servedTake} picked={picked} setPicked={setPicked} onRepick={onPrompt} onDone={() => setPop(null)} />
@@ -624,7 +624,7 @@ function VersionPanel({ v, project, onClose, setPop }) {
       setBusy(false);
     }
   };
-  const logUrl = `/__orch/api/log/${encodeURIComponent(v.id)}?t=${encodeURIComponent(CFG.token)}`;
+  const logUrl = `/__retakes/api/log/${encodeURIComponent(v.id)}?t=${encodeURIComponent(CFG.token)}`;
 
   if (v.kind === 'main') {
     return (
@@ -871,7 +871,7 @@ function FlowsPanel({ v, flows, onRecord }) {
       setBusy(false);
     }
   };
-  const shotUrl = (f) => `/__orch/api/flowshot/${encodeURIComponent(v.id)}/${encodeURIComponent(f)}?t=${encodeURIComponent(CFG.token)}`;
+  const shotUrl = (f) => `/__retakes/api/flowshot/${encodeURIComponent(v.id)}/${encodeURIComponent(f)}?t=${encodeURIComponent(CFG.token)}`;
   return (
     <>
       <div className="ph">
@@ -880,7 +880,7 @@ function FlowsPanel({ v, flows, onRecord }) {
       </div>
       {!flows.length ? (
         <p className="said">
-          Record what you'd check by hand, like searching and opening a result. Orchestrator replays it on every take when its agent finishes, and
+          Record what you'd check by hand, like searching and opening a result. Retakes replays it on every take when its agent finishes, and
           tells you when a take breaks it.
         </p>
       ) : (
@@ -968,7 +968,7 @@ function FlowsPanel({ v, flows, onRecord }) {
           Record a flow
         </button>
       </div>
-      <p className="hint">Flows are saved in .orch/flows in your app, with a Playwright test for each. Commit them to share.</p>
+      <p className="hint">Flows are saved in .retakes/flows in your app, with a Playwright test for each. Commit them to share.</p>
     </>
   );
 }
@@ -1226,11 +1226,11 @@ function Compare({ versions, onClose }) {
   useEffect(() => {
     const onMsg = (e) => {
       const d = e.data;
-      if (!sync || !d || d.__orch !== 'scroll') return;
+      if (!sync || !d || d.__retakes !== 'scroll') return;
       const l = leftRef.current && leftRef.current.contentWindow;
       const r = rightRef.current && rightRef.current.contentWindow;
       const other = e.source === l ? r : e.source === r ? l : null;
-      if (other) other.postMessage({ __orch: 'scrollTo', x: d.x, y: d.y }, '*');
+      if (other) other.postMessage({ __retakes: 'scrollTo', x: d.x, y: d.y }, '*');
     };
     addEventListener('message', onMsg);
     return () => removeEventListener('message', onMsg);

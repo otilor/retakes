@@ -5,16 +5,15 @@
   "author": "Gabriel",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/otilor/orchestrator.git"
+    "url": "git+https://github.com/otilor/retakes.git"
   },
-  "homepage": "https://github.com/otilor/orchestrator#readme",
+  "homepage": "https://github.com/otilor/retakes#readme",
   "bugs": {
-    "url": "https://github.com/otilor/orchestrator/issues"
+    "url": "https://github.com/otilor/retakes/issues"
   },
   "type": "module",
   "bin": {
-    "retakes": "bin/orch.js",
-    "orch": "bin/orch.js"
+    "retakes": "bin/retakes.js"
   },
   "files": [
     "bin",

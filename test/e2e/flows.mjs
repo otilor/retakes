@@ -1,5 +1,5 @@
 // End-to-end test for recorded flows: record one in the dock on a real Vite app, then let
-// Orchestrator replay it with Playwright on each take. Run with `npm run test:e2e:flows`.
+// Retakes replay it with Playwright on each take. Run with `npm run test:e2e:flows`.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -10,7 +10,7 @@ import { makeApp, ROOT } from './fixture.mjs';
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
 
-const BASE = process.env.ORCH_E2E_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'orch-e2e-'));
+const BASE = process.env.RETAKES_E2E_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'retakes-e2e-'));
 const SHOTS = path.join(BASE, 'shots-flows');
 fs.mkdirSync(SHOTS, { recursive: true });
 const HOME = fs.mkdtempSync(path.join(BASE, 'home-'));
@@ -31,7 +31,7 @@ async function step(name, fn) {
   } catch (err) {
     console.log(`  ✗ ${name}\n    ${err.stack || err.message}`);
     await page.screenshot({ path: path.join(SHOTS, `fail-${name.replace(/\W+/g, '-')}.png`) }).catch(() => {});
-    console.log(`\norch output:\n${orchOut.slice(-4000)}`);
+    console.log(`\nretakes output:\n${retakesOut.slice(-4000)}`);
     await shutdown();
     process.exit(1);
   }
@@ -57,22 +57,22 @@ console.log(`Setting up a fixture app in ${BASE}`);
 const { dir: APP, git } = makeApp({ base: BASE, config: { agent: { command: `node ${MOCK}` } } });
 console.log(`App: ${APP}\nHub port: ${PORT}`);
 
-let orch = null;
-let orchOut = '';
-function startOrch() {
-  orch = spawn(process.execPath, [path.join(ROOT, 'bin', 'orch.js'), '--no-open', '--port', String(PORT)], {
+let retakes = null;
+let retakesOut = '';
+function startRetakes() {
+  retakes = spawn(process.execPath, [path.join(ROOT, 'bin', 'retakes.js'), '--no-open', '--port', String(PORT)], {
     cwd: APP,
-    env: { ...process.env, ORCH_HOME: HOME, ORCH_MOCK_LOG: MOCK_LOG, ORCH_MOCK_STEP_MS: '900' },
+    env: { ...process.env, RETAKES_HOME: HOME, RETAKES_MOCK_LOG: MOCK_LOG, RETAKES_MOCK_STEP_MS: '900' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  orch.stdout.on('data', (d) => (orchOut += d));
-  orch.stderr.on('data', (d) => (orchOut += d));
-  return until(() => /main: dev server ready/.test(orchOut), 'main dev server ready', 90000);
+  retakes.stdout.on('data', (d) => (retakesOut += d));
+  retakes.stderr.on('data', (d) => (retakesOut += d));
+  return until(() => /main: dev server ready/.test(retakesOut), 'main dev server ready', 90000);
 }
-async function stopOrch() {
-  if (!orch || orch.exitCode !== null) return;
-  const done = new Promise((r) => orch.once('exit', r));
-  orch.kill('SIGINT');
+async function stopRetakes() {
+  if (!retakes || retakes.exitCode !== null) return;
+  const done = new Promise((r) => retakes.once('exit', r));
+  retakes.kill('SIGINT');
   await done;
 }
 
@@ -85,18 +85,18 @@ const URL0 = `http://localhost:${PORT}/`;
 
 async function shutdown() {
   await browser.close().catch(() => {});
-  await stopOrch().catch(() => {});
+  await stopRetakes().catch(() => {});
 }
 
-const dock = () => page.locator('orch-dock .dock');
-const tile = (label) => page.locator(`orch-dock .tiles button[aria-label^="${label},"]`);
+const dock = () => page.locator('retakes-dock .dock');
+const tile = (label) => page.locator(`retakes-dock .tiles button[aria-label^="${label},"]`);
 let TOKEN = null;
 // Calls go from Node, not the page, since Keep and switches reload the page mid-call.
 async function apiCall(p, body) {
-  if (!TOKEN) TOKEN = await page.evaluate(() => window.__ORCH__.token);
-  const r = await fetch(`${URL0}__orch/api/${p}`, {
+  if (!TOKEN) TOKEN = await page.evaluate(() => window.__RETAKES__.token);
+  const r = await fetch(`${URL0}__retakes/api/${p}`, {
     method: body === undefined ? 'GET' : 'POST',
-    headers: { 'x-orch-token': TOKEN, 'content-type': 'application/json' },
+    headers: { 'x-retakes-token': TOKEN, 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: r.status, body: await r.json().catch(() => null) };
@@ -116,22 +116,22 @@ async function waitReady(id, timeout = 240000) {
   );
 }
 
-const rec = () => page.locator('orch-dock .rec');
+const rec = () => page.locator('retakes-dock .rec');
 const flowOn = async (id, flow) => ((await version(id)).flows || []).find((f) => f.id === flow);
-const FLOWS = () => path.join(APP, '.orch', 'flows');
+const FLOWS = () => path.join(APP, '.retakes', 'flows');
 
 try {
-  await step('orch starts and the Flows panel explains itself', async () => {
-    await startOrch();
+  await step('retakes starts and the Flows panel explains itself', async () => {
+    await startRetakes();
     await page.goto(URL0);
     await dock().waitFor({ timeout: 30000 });
     await page.keyboard.press('f');
-    await page.locator('orch-dock .pop').getByText('Record what you').waitFor();
-    ok((await page.locator('orch-dock .pop button', { hasText: 'Record a flow' }).count()) === 1, 'record button');
+    await page.locator('retakes-dock .pop').getByText('Record what you').waitFor();
+    ok((await page.locator('retakes-dock .pop button', { hasText: 'Record a flow' }).count()) === 1, 'record button');
   });
 
   await step('recording captures typing, Enter, clicks and a text check', async () => {
-    await page.locator('orch-dock .pop button', { hasText: 'Record a flow' }).click();
+    await page.locator('retakes-dock .pop button', { hasText: 'Record a flow' }).click();
     await rec().waitFor();
     ok((await dock().count()) === 0, 'the dock steps aside while recording');
     await page.locator('.search-input').click();
@@ -140,7 +140,7 @@ try {
     await page.locator('.clear').click();
     await until(async () => (await rec().textContent()).includes('3 steps'), 'three steps (typing is one step, Enter does not double as a click)');
     await rec().getByRole('button', { name: 'Add check' }).click();
-    await page.locator('orch-dock .pick-hint').waitFor();
+    await page.locator('retakes-dock .pick-hint').waitFor();
     const b = await page.locator('.none').boundingBox();
     await page.mouse.click(b.x + 4, b.y + 4);
     await until(async () => (await rec().textContent()).includes('4 steps'), 'the check is step 4');
@@ -156,7 +156,7 @@ try {
 
   await step('saving writes the flow and its Playwright test to the repo, then replays it', async () => {
     await rec().getByRole('button', { name: 'Done' }).click();
-    await page.locator('orch-dock .rec-name').fill('Clear filters');
+    await page.locator('retakes-dock .rec-name').fill('Clear filters');
     await rec().getByRole('button', { name: 'Save flow' }).click();
     await dock().waitFor();
     const file = path.join(FLOWS(), 'clear-filters.json');
@@ -177,9 +177,9 @@ try {
 
   await step('Watch plays the flow on the page, step by step', async () => {
     await page.keyboard.press('f');
-    await page.locator('orch-dock .flow-row').click();
-    await page.locator('orch-dock .pop button', { hasText: 'Watch' }).click();
-    const bar = page.locator('orch-dock .rec.watch');
+    await page.locator('retakes-dock .flow-row').click();
+    await page.locator('retakes-dock .pop button', { hasText: 'Watch' }).click();
+    const bar = page.locator('retakes-dock .rec.watch');
     await bar.waitFor({ timeout: 15000 });
     await until(async () => /step 2 of 4/.test(await bar.textContent()), 'shows its progress', 15000, 50);
     await page.screenshot({ path: path.join(SHOTS, '02-watching.png') });
@@ -199,7 +199,7 @@ try {
       return f && (f.status === 'pass' || f.status === 'fail') ? f : false;
     }, 'replayed on agent-1', 60000);
     ok(r.status === 'pass', `passes on agent-1 (${r.error})`);
-    ok(git('show', 'orch/take-1:src/SearchBar.jsx').includes('Search big 1'), 'the take did change the button');
+    ok(git('show', 'retakes/take-1:src/SearchBar.jsx').includes('Search big 1'), 'the take did change the button');
   });
 
   await step('a take that breaks the flow gets a badge, a notice and a screenshot', async () => {
@@ -211,26 +211,26 @@ try {
     }, 'fails on agent-2', 60000);
     ok(!r.alsoOnMain, 'main still passes, so agent-2 broke it');
     ok(r.failedStep === 4 || /Page error/.test(r.error), `points at the problem (${r.error})`);
-    ok(/agent-2: flow "Clear filters" failed/.test(orchOut), 'logged');
+    ok(/agent-2: flow "Clear filters" failed/.test(retakesOut), 'logged');
     await until(async () => (await tile('agent-2').getAttribute('aria-label')).includes('flow broken'), 'tile shows the broken flow');
-    const shot = await fetch(`${URL0}__orch/api/flowshot/t2/clear-filters?t=${TOKEN}`);
+    const shot = await fetch(`${URL0}__retakes/api/flowshot/t2/clear-filters?t=${TOKEN}`);
     ok(shot.status === 200 && shot.headers.get('content-type') === 'image/png', 'screenshot served');
     await tile('agent-2').click();
     await page.waitForLoadState('load');
     await dock().waitFor();
     await page.keyboard.press('f');
-    await page.locator('orch-dock .flow.fail').waitFor();
-    await page.locator('orch-dock .flow-row').click();
-    await page.locator('orch-dock .ferr').first().waitFor();
+    await page.locator('retakes-dock .flow.fail').waitFor();
+    await page.locator('retakes-dock .flow-row').click();
+    await page.locator('retakes-dock .ferr').first().waitFor();
     await page.screenshot({ path: path.join(SHOTS, '03-broken.png') });
     await page.keyboard.press('Escape');
   });
 
   await step('Watch on the broken take stops at the failing step', async () => {
     await page.keyboard.press('f');
-    await page.locator('orch-dock .flow-row').click();
-    await page.locator('orch-dock .pop button', { hasText: 'Watch' }).click();
-    const bar = page.locator('orch-dock .rec.watch');
+    await page.locator('retakes-dock .flow-row').click();
+    await page.locator('retakes-dock .pop button', { hasText: 'Watch' }).click();
+    const bar = page.locator('retakes-dock .rec.watch');
     await bar.waitFor({ timeout: 15000 });
     await until(async () => /failed at step 4/.test(await bar.textContent()), 'watch shows the failure', 30000);
     await page.screenshot({ path: path.join(SHOTS, '04-watch-failed.png') });
@@ -259,10 +259,10 @@ try {
     ok((await apiCall('state')).body.flows.length === 0, 'no flows left');
   });
 
-  await step('orch stops cleanly', async () => {
-    await stopOrch();
-    ok(/Stopping dev servers/.test(orchOut), 'clean shutdown');
-    execFileSync(process.execPath, [path.join(ROOT, 'bin', 'orch.js'), 'clean', '--yes'], { cwd: APP, env: { ...process.env, ORCH_HOME: HOME } });
+  await step('retakes stops cleanly', async () => {
+    await stopRetakes();
+    ok(/Stopping dev servers/.test(retakesOut), 'clean shutdown');
+    execFileSync(process.execPath, [path.join(ROOT, 'bin', 'retakes.js'), 'clean', '--yes'], { cwd: APP, env: { ...process.env, RETAKES_HOME: HOME } });
   });
 
   const unexpected = pageErrors.filter((m) => !/undefined|map|length/i.test(m));

@@ -18,7 +18,7 @@ const FLOW_SETTLE_MS = 1500;
  * Owns every version of the app: main (your own checkout) and the takes, each a
  * git worktree with its own dev server and its own Claude Code session.
  */
-export class Orchestrator extends EventEmitter {
+export class Retakes extends EventEmitter {
   constructor(project, { log = () => {} } = {}) {
     super();
     this.p = project;
@@ -192,7 +192,7 @@ export class Orchestrator extends EventEmitter {
     const last = meta.runs[meta.runs.length - 1];
     if (last && last.ok === undefined) {
       last.ok = false;
-      last.error = 'Orchestrator was closed while the agent was working.';
+      last.error = 'Retakes was closed while the agent was working.';
       // Claude Code refuses a --session-id it has seen before, so start the next run on a fresh one.
       if (!meta.hasSession) meta.sessionId = crypto.randomUUID();
     }
@@ -271,8 +271,8 @@ export class Orchestrator extends EventEmitter {
 
     const n = this.state.next++;
     const id = `t${n}`;
-    let branch = `orch/take-${n}`;
-    for (let i = 2; await G.branchExists(this.p.gitRoot, branch); i++) branch = `orch/take-${n}-${i}`;
+    let branch = `retakes/take-${n}`;
+    for (let i = 2; await G.branchExists(this.p.gitRoot, branch); i++) branch = `retakes/take-${n}-${i}`;
     const dir = path.join(this.p.takesDir, id);
     if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
     const meta = {
@@ -634,7 +634,7 @@ export class Orchestrator extends EventEmitter {
     const flow = saveFlow(this.p.appDir, raw);
     this.flows = loadFlows(this.p.appDir);
     for (const v of [this.main, ...this.takes.values()]) v.flows.delete(flow.id);
-    this.log(`flows: saved "${flow.name}" (${flow.steps.length} steps) to .orch/flows/${flow.id}.json`);
+    this.log(`flows: saved "${flow.name}" (${flow.steps.length} steps) to .retakes/flows/${flow.id}.json`);
     this.changed();
     // Replay it right away on the version it was recorded on, so a bad recording shows up now.
     const on = version && this.version(version) && !this.version(version).run ? version : 'main';
@@ -787,7 +787,7 @@ function lastResult(m) {
 
 function commitMessage(m, kind, text) {
   const head = kind === 'start' ? m.prompt : text;
-  return `agent-${m.n}: ${clip(firstLine(head), 72)}\n\nMade with Orchestrator and Claude Code.`;
+  return `agent-${m.n}: ${clip(firstLine(head), 72)}\n\nMade with Retakes and Claude Code.`;
 }
 
 function plural(n, word) {

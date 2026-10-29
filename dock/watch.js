@@ -5,7 +5,7 @@ import { api, CFG } from './lib.js';
  * tile can show them and the agent can be asked to fix them.
  */
 export function watchErrors() {
-  const q = window.__ORCH_ERRQ || (window.__ORCH_ERRQ = []);
+  const q = window.__RETAKES_ERRQ || (window.__RETAKES_ERRQ = []);
   const recent = new Map();
   const send = (e) => {
     const key = e.message;
@@ -17,7 +17,7 @@ export function watchErrors() {
   const drain = () => {
     while (q.length) send(q.shift());
   };
-  window.__ORCH_ONERR = drain;
+  window.__RETAKES_ONERR = drain;
   drain();
 
   const checkOverlay = () => {
@@ -68,14 +68,14 @@ export function runPane() {
     'scroll',
     () => {
       if (Date.now() < quietUntil) return;
-      parent.postMessage({ __orch: 'scroll', x: scrollX, y: scrollY }, '*');
+      parent.postMessage({ __retakes: 'scroll', x: scrollX, y: scrollY }, '*');
     },
     { passive: true }
   );
   addEventListener('message', (e) => {
-    if (e.source !== parent || !e.data || e.data.__orch !== 'scrollTo') return;
+    if (e.source !== parent || !e.data || e.data.__retakes !== 'scrollTo') return;
     quietUntil = Date.now() + 120;
     scrollTo(e.data.x, e.data.y);
   });
-  parent.postMessage({ __orch: 'ready' }, '*');
+  parent.postMessage({ __retakes: 'ready' }, '*');
 }

@@ -38,8 +38,8 @@ async function identityArgs(cwd) {
   const email = await git(['config', 'user.email'], cwd).catch(() => '');
   const name = await git(['config', 'user.name'], cwd).catch(() => '');
   const args = [];
-  if (!email.trim()) args.push('-c', 'user.email=orchestrator@localhost');
-  if (!name.trim()) args.push('-c', 'user.name=Orchestrator');
+  if (!email.trim()) args.push('-c', 'user.email=retakes@localhost');
+  if (!name.trim()) args.push('-c', 'user.name=Retakes');
   return args;
 }
 
@@ -61,7 +61,7 @@ export async function removeWorktree(gitRoot, dir, branch) {
 }
 
 /**
- * Commit everything in a worktree except the files Orchestrator copied in (like .env).
+ * Commit everything in a worktree except the files Retakes copied in (like .env).
  * Returns the new commit's sha, or null when there was nothing to commit.
  */
 export async function commitAll(worktreeRoot, message, excludePaths = []) {
@@ -130,7 +130,7 @@ export function untrackedInTheWay(message) {
   return m ? m[1].split('\n').map((l) => l.trim()).filter(Boolean) : [];
 }
 
-/** Branches Orchestrator made, from `git worktree list`, so `orch clean` can find leftovers. */
+/** Branches Retakes made, from `git worktree list`, so `retakes clean` can find leftovers. */
 export async function listWorktrees(gitRoot) {
   const out = await git(['worktree', 'list', '--porcelain'], gitRoot);
   const items = [];
