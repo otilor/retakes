@@ -18,7 +18,8 @@
     "build": "node scripts/build-dock.mjs",
     "test": "node --test test/unit/*.test.js",
     "test:e2e": "node test/e2e/run.mjs",
-    "test:e2e:next": "node test/e2e/next.mjs"
+    "test:e2e:next": "node test/e2e/next.mjs",
+    "test:e2e:flows": "node test/e2e/flows.mjs"
   },
   "keywords": [
     "claude-code",

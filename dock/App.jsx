@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { NotchToaster, toast } from 'notch-toast';
 import { api, CFG, switchTo, hueClass, describeElement, shortLabel } from './lib.js';
-import { Mark, Branch, CompareIcon, PromptIcon, KeepIcon, CloseIcon } from './icons.jsx';
+import { Mark, Branch, CompareIcon, PromptIcon, KeepIcon, CloseIcon, FlowIcon } from './icons.jsx';
+import { Recorder, savedRecording, startRecording } from './record.jsx';
 
 const PREFS_KEY = '__orch_ui';
 const GAP = 12;
@@ -73,8 +74,16 @@ function takeStatus(v) {
   if (v.phase === 'starting') return { key: 'busy', label: 'Starting its dev server' };
   if (v.agent.status === 'failed') return { key: 'fail', label: 'Agent hit a problem' };
   if (v.errors.length) return { key: 'fail', label: plural(v.errors.length, 'error') };
+  const broken = brokenFlows(v).length;
+  if (broken) return { key: 'fail', label: `${plural(broken, 'flow')} broken` };
+  if ((v.flows || []).some((f) => f.status === 'running' || f.status === 'queued')) return { key: 'busy', label: 'Checking your flows' };
   if (v.agent.status === 'stopped') return { key: 'warn', label: 'Stopped' };
   return { key: 'ok', label: 'Ready' };
+}
+
+// Flows that fail on a take but pass on main: the ones the take broke.
+function brokenFlows(v) {
+  return (v.flows || []).filter((f) => f.status === 'fail' && (v.kind === 'main' || !f.alsoOnMain));
 }
 
 function plural(n, word) {
@@ -109,7 +118,7 @@ export default function App({ host, restored, watcher }) {
   const [hidden, setHidden] = useState(false);
   const [pop, setPop] = useState(null);
   const keysRef = useRef({});
-  const [mode, setMode] = useState(null);
+  const [mode, setMode] = useState(() => (CFG.token && savedRecording() ? 'record' : null));
   const [picked, setPicked] = useState(null);
   const [drag, setDrag] = useState(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -261,6 +270,7 @@ export default function App({ host, restored, watcher }) {
     const onKey = (e) => {
       const t = e.composedPath()[0];
       const typing = t && t.nodeType === 1 && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+      if (mode === 'record') return;
       if (e.key === 'Escape') {
         if (mode) {
           setMode(null);
@@ -300,6 +310,10 @@ export default function App({ host, restored, watcher }) {
       } else if (key === 'c') {
         e.preventDefault();
         keysRef.current.onCompare();
+      } else if (key === 'f') {
+        e.preventDefault();
+        setMode(null);
+        setPop((p) => (p && p.kind === 'flows' ? null : { kind: 'flows' }));
       }
     };
     addEventListener('keydown', onKey, true);
@@ -389,6 +403,13 @@ export default function App({ host, restored, watcher }) {
     setMode('pick');
   };
 
+  const onRecord = () => {
+    setPop(null);
+    setPicked(null);
+    startRecording();
+    setMode('record');
+  };
+
   keysRef.current = { onPrompt, onCompare };
 
   if (!CFG.token) return null;
@@ -397,6 +418,7 @@ export default function App({ host, restored, watcher }) {
   const toasterPos = edge === 'top' ? 'bottom-center' : 'top-center';
   const now = served || { id: CFG.v, kind: CFG.v === 'main' ? 'main' : 'take', n: Number(String(CFG.v).slice(1)) || 1, label: labelFor(CFG.v), errors: [], server: { status: 'ready' }, agent: { status: 'idle' }, phase: 'live' };
   const nowStatus = takeStatus(now);
+  const nowBroken = brokenFlows(now).length;
   const stCls = nowStatus.key === 'ok' ? '' : nowStatus.key;
   const handleTip = conn === 'lost' ? 'Lost touch with orch. Is it still running?' : conn === 'stale' ? 'Orchestrator restarted: reload the page' : prefs.open ? 'Drag to move · click to collapse' : 'Drag to move · click to open';
 
@@ -404,7 +426,7 @@ export default function App({ host, restored, watcher }) {
     <div className={`root ${theme}`}>
       <NotchToaster position={toasterPos} mode="floating" animation="smooth" />
 
-      {!hidden && mode !== 'compare' && (
+      {!hidden && mode !== 'compare' && mode !== 'record' && (
         <div
           ref={barRef}
           className={`dock${prefs.open ? '' : ' closed'}${drag ? ' dragging' : ''}${pop ? ' has-pop' : ''}${conn === 'live' ? '' : ' offline'}${size.w ? '' : ' measuring'}`}
@@ -494,6 +516,20 @@ export default function App({ host, restored, watcher }) {
               </button>
               <button
                 type="button"
+                className={`btn-i${pop && pop.kind === 'flows' ? ' on' : ''}`}
+                aria-label={nowBroken ? `Flows: ${nowBroken} broken` : 'Flows'}
+                data-tip={nowBroken ? `${plural(nowBroken, 'flow')} broken · F` : 'Flows · F'}
+                onClick={() => setPop((p) => (p && p.kind === 'flows' ? null : { kind: 'flows' }))}
+              >
+                <FlowIcon />
+                {nowBroken > 0 && (
+                  <span className="badge fail" aria-hidden="true">
+                    {nowBroken}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
                 className={`btn-i${mode === 'pick' || (pop && pop.kind === 'compose') ? ' on' : ''}`}
                 aria-label="Prompt a change"
                 data-tip="Point and prompt · P"
@@ -516,12 +552,13 @@ export default function App({ host, restored, watcher }) {
         </div>
       )}
 
-      {pop && !hidden && mode !== 'compare' && (
+      {pop && !hidden && mode !== 'compare' && mode !== 'record' && (
         <div className={`pop${pop.kind === 'settings' ? ' menu' : ''}`} style={popStyle(edge, pos, size, vp, pop.kind === 'settings' ? 240 : 360)} role="dialog" aria-label="Orchestrator">
           {pop.kind === 'version' && <VersionPanel v={versions.find((x) => x.id === pop.id)} project={snap && snap.project} onClose={() => setPop(null)} setPop={setPop} />}
           {pop.kind === 'compose' && (
             <Composer servedTake={servedTake} picked={picked} setPicked={setPicked} onRepick={onPrompt} onDone={() => setPop(null)} />
           )}
+          {pop.kind === 'flows' && <FlowsPanel v={now} flows={(snap && snap.flows) || []} onRecord={onRecord} />}
           {pop.kind === 'keep' && <KeepPanel v={versions.find((x) => x.id === pop.id)} branch={snap && snap.project.branch} onClose={() => setPop(null)} />}
           {pop.kind === 'settings' && (
             <Settings
@@ -549,6 +586,8 @@ export default function App({ host, restored, watcher }) {
           }}
         />
       )}
+
+      {mode === 'record' && <Recorder host={host} hintAt={edge === 'top' ? 'top' : 'bottom'} Picker={Picker} onStop={() => setMode(null)} />}
 
       {mode === 'compare' && <Compare versions={versions} onClose={() => setMode(null)} />}
     </div>
@@ -608,6 +647,7 @@ function VersionPanel({ v, project, onClose, setPop }) {
           </div>
         )}
         <Errors v={v} />
+        <BrokenFlows v={v} />
         <div className="row end">
           {!viewing && v.switchable && (
             <button type="button" className="pbtn primary" onClick={() => switchTo('main', { from: CFG.v })}>
@@ -663,6 +703,7 @@ function VersionPanel({ v, project, onClose, setPop }) {
         </p>
       )}
       <Errors v={v} onFix={!running ? () => act(() => api(`takes/${v.id}/fix`, {})) : null} />
+      <BrokenFlows v={v} onFix={!running && !v.errors.length ? () => act(() => api(`takes/${v.id}/fix`, {})) : null} />
 
       {!running && (
         <>
@@ -779,6 +820,145 @@ function Errors({ v, onFix }) {
         </button>
       </div>
     </div>
+  );
+}
+
+function BrokenFlows({ v, onFix }) {
+  const broken = brokenFlows(v);
+  if (!broken.length) return null;
+  return (
+    <div className="note fail">
+      {broken.length === 1 ? `Your flow "${broken[0].name}" fails here` : `${broken.length} of your flows fail here`}
+      {v.kind === 'take' ? ' but passes on main' : ''}
+      <ul className="errs" style={{ marginTop: 6 }}>
+        {broken.slice(0, 3).map((f) => (
+          <li key={f.id}>{f.error}</li>
+        ))}
+      </ul>
+      {onFix && (
+        <div className="row">
+          <button type="button" className="pbtn primary" onClick={onFix}>
+            Ask {v.label} to fix
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const FLOW_MARK = { pass: '✓', fail: '×', running: '', queued: '', none: '·' };
+
+function FlowsPanel({ v, flows, onRecord }) {
+  const [busy, setBusy] = useState(false);
+  const [armed, setArmed] = useState(null);
+  const [open, setOpen] = useState(null);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(null), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  const results = new Map((v.flows || []).map((f) => [f.id, f]));
+  const running = v.kind === 'take' && v.agent && v.agent.status === 'running';
+  const act = async (fn) => {
+    setBusy(true);
+    try {
+      await fn();
+    } catch (err) {
+      toast.error(err.message, { duration: 8000, dismissible: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const shotUrl = (f) => `/__orch/api/flowshot/${encodeURIComponent(v.id)}/${encodeURIComponent(f)}?t=${encodeURIComponent(CFG.token)}`;
+  return (
+    <>
+      <div className="ph">
+        <h2>Flows</h2>
+        <span className="pill">on {v.label}</span>
+      </div>
+      {!flows.length ? (
+        <p className="said">
+          Record what you'd check by hand, like searching and opening a result. Orchestrator replays it on every take when its agent finishes, and
+          tells you when a take breaks it.
+        </p>
+      ) : (
+        <ul className="flows">
+          {flows.map((f) => {
+            const r = results.get(f.id) || { status: 'none' };
+            const st = r.status === 'fail' && r.alsoOnMain ? 'warn' : r.status;
+            return (
+              <li key={f.id} className={`flow ${st}`}>
+                <button type="button" className="flow-row" aria-expanded={open === f.id} onClick={() => setOpen((o) => (o === f.id ? null : f.id))}>
+                  <span className={`fmark ${st}`} aria-hidden="true">
+                    {r.status === 'running' || r.status === 'queued' ? <span className="mini-spin" /> : FLOW_MARK[r.status] || '·'}
+                  </span>
+                  <span className="fname">{f.name}</span>
+                  <span className="fmeta">
+                    {r.status === 'pass'
+                      ? 'Passes'
+                      : r.status === 'fail'
+                        ? r.alsoOnMain
+                          ? 'Fails on main too'
+                          : 'Broken'
+                        : r.status === 'running'
+                          ? 'Replaying'
+                          : r.status === 'queued'
+                            ? 'Waiting'
+                            : plural(f.steps, 'step')}
+                  </span>
+                </button>
+                {open === f.id && (
+                  <div className="flow-more">
+                    {r.error && <p className="ferr">{r.error}</p>}
+                    {(r.problems || [])
+                      .filter((p) => p !== r.error)
+                      .slice(0, 3)
+                      .map((p) => (
+                        <p key={p} className="ferr">
+                          {p}
+                        </p>
+                      ))}
+                    <div className="row">
+                      <button type="button" className="pbtn" disabled={busy || running} onClick={() => act(() => api(`versions/${v.id}/run-flows`, { only: [f.id] }))}>
+                        Run on {v.label}
+                      </button>
+                      {r.shot && (
+                        <a className="link" href={shotUrl(f.id)} target="_blank" rel="noreferrer">
+                          Screenshot
+                        </a>
+                      )}
+                      <span className="grow" />
+                      <button
+                        type="button"
+                        className={`pbtn danger${armed === f.id ? ' armed' : ''}`}
+                        disabled={busy}
+                        onClick={() => {
+                          if (armed !== f.id) return setArmed(f.id);
+                          act(() => api(`flows/${encodeURIComponent(f.id)}/delete`, {}));
+                        }}
+                      >
+                        {armed === f.id ? 'Click again to delete' : 'Delete'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="row end">
+        {flows.length > 0 && (
+          <button type="button" className="pbtn" disabled={busy || running} onClick={() => act(() => api(`versions/${v.id}/run-flows`, {}))}>
+            Run all on {v.label}
+          </button>
+        )}
+        <button type="button" className="pbtn primary" onClick={onRecord}>
+          Record a flow
+        </button>
+      </div>
+      <p className="hint">Flows are saved in .orch/flows in your app, with a Playwright test for each. Commit them to share.</p>
+    </>
   );
 }
 
@@ -948,7 +1128,7 @@ function Settings({ prefs, setPrefs, onHide, onClose }) {
 
 // ---------- picking an element ----------
 
-function Picker({ host, hintAt, onPick }) {
+function Picker({ host, hintAt, onPick, hint }) {
   const [box, setBox] = useState(null);
   const target = useRef(null);
   const find = (x, y) => {
@@ -980,7 +1160,7 @@ function Picker({ host, hintAt, onPick }) {
         onClick={(e) => {
           e.preventDefault();
           const el = target.current || find(e.clientX, e.clientY);
-          if (el) onPick(describeElement(el));
+          if (el) onPick(describeElement(el), el);
         }}
       />
       {box && (
@@ -992,7 +1172,11 @@ function Picker({ host, hintAt, onPick }) {
         </>
       )}
       <div className="pick-hint" style={hintAt === 'top' ? { top: 16 } : { bottom: 16 }}>
-        Click the part you want to change · <kbd>Enter</kbd> to skip · <kbd>Esc</kbd> to cancel
+        {hint || (
+          <>
+            Click the part you want to change · <kbd>Enter</kbd> to skip · <kbd>Esc</kbd> to cancel
+          </>
+        )}
       </div>
     </>
   );

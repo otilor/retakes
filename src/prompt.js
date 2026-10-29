@@ -46,19 +46,40 @@ export function refinePrompt(request, element) {
   }\n\nSame rules as before: keep it focused, don't start servers, don't commit, and end with one or two sentences on what you changed.`;
 }
 
-export function fixPrompt(errors) {
-  const list = errors
-    .slice(0, 8)
-    .map((e) => {
-      const stack = String(e.stack || '')
-        .split('\n')
-        .slice(0, 6)
-        .map((l) => `    ${l.trim()}`)
-        .join('\n');
-      return `- ${clip(e.message, 400)}${e.count > 1 ? ` (seen ${e.count} times)` : ''}${stack ? `\n${stack}` : ''}`;
-    })
-    .join('\n');
-  return `The app now shows these errors in the browser:\n${list}\n\nFind the cause and fix it, keeping the change the user asked for. Same rules as before: don't start servers, don't commit, and end with one or two sentences on what you fixed.`;
+export function fixPrompt(errors, flows = []) {
+  const parts = [];
+  if (errors.length) {
+    const list = errors
+      .slice(0, 8)
+      .map((e) => {
+        const stack = String(e.stack || '')
+          .split('\n')
+          .slice(0, 6)
+          .map((l) => `    ${l.trim()}`)
+          .join('\n');
+        return `- ${clip(e.message, 400)}${e.count > 1 ? ` (seen ${e.count} times)` : ''}${stack ? `\n${stack}` : ''}`;
+      })
+      .join('\n');
+    parts.push(`The app now shows these errors in the browser:\n${list}`);
+  }
+  if (flows.length) {
+    const list = flows
+      .slice(0, 5)
+      .map((f) => {
+        const steps = f.steps
+          .slice(0, 25)
+          .map((s, i) => `    ${i + 1}. ${clip(s, 160)}${f.failedStep === i + 1 ? '   <- failed here' : ''}`)
+          .join('\n');
+        const extra = (f.problems || []).filter((p) => p !== f.error).slice(0, 4).map((p) => `    Also: ${clip(p, 300)}`);
+        return [`- "${clip(f.name, 80)}", starting at ${clip(f.start, 120)}:`, steps, `    Result: ${clip(f.error, 400)}`, ...extra].join('\n');
+      })
+      .join('\n');
+    parts.push(
+      `The user recorded these flows through the app. They pass on the original version but fail on yours, so your change broke them:\n${list}\n\nKeep the elements, labels and text the flows rely on working, unless the user's request was to change them.`
+    );
+  }
+  parts.push(`Find the cause and fix it, keeping the change the user asked for. Same rules as before: don't start servers, don't commit, and end with one or two sentences on what you fixed.`);
+  return parts.join('\n\n');
 }
 
 export function continuePrompt(request) {

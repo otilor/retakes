@@ -173,6 +173,39 @@ button { font: inherit; color: inherit; }
 .seg button[aria-pressed="true"] { background: var(--press); color: var(--fg); }
 .mhr { height: 1px; margin: 4px 6px; background: var(--line); }
 
+/* ---------- flows ---------- */
+.flows { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.flow-row { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border: 0; border-radius: 9px; background: none; text-align: left; cursor: pointer; outline: none; }
+.flow-row:hover, .flow-row[aria-expanded="true"] { background: var(--hover); }
+.flow-row:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.fmark { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; font: 800 11px/1 system-ui, sans-serif; background: var(--field); color: var(--muted); }
+.fmark.pass { background: var(--ok); color: var(--num); }
+.fmark.fail { background: var(--fail); color: var(--bfail); }
+.fmark.warn { background: var(--warn); color: var(--bwarn); }
+.fmark .mini-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--accent); border-right-color: transparent; animation: orch-spin .9s linear infinite; }
+.fname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.fmeta { flex: none; color: var(--muted); font-size: 12px; }
+.flow.fail .fmeta { color: var(--fail); }
+.flow-more { padding: 2px 8px 10px 35px; }
+.ferr { margin: 0 0 6px; font: 11.5px/1.45 ui-monospace, Menlo, monospace; color: var(--fg); overflow-wrap: anywhere; }
+.row .grow { flex: 1; }
+.rec {
+  position: fixed; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 6px; max-width: calc(100vw - 24px);
+  padding: 6px 6px 6px 14px; border-radius: 16px; background: var(--pop); color: var(--fg); box-shadow: var(--sh-pop);
+  animation: orch-rise .18s ease-out;
+}
+.rec-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: #ff4d4d; box-shadow: 0 0 0 4px rgba(255,77,77,.22); animation: orch-pulse 1.4s ease-in-out infinite; }
+@keyframes orch-pulse { 50% { opacity: .45; } }
+.rec-text { display: flex; flex-direction: column; min-width: 0; margin: 0 8px 0 4px; }
+.rec-text b { font-weight: 600; white-space: nowrap; }
+.rec-text small { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11.5px; }
+.rec-name {
+  width: 320px; max-width: 50vw; height: 32px; padding: 0 10px; border: 0; border-radius: 10px; background: var(--field);
+  box-shadow: inset 0 0 0 1px var(--field-line); color: var(--fg); outline: none; font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.rec-name:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+@media (max-width: 640px) { .rec { flex-wrap: wrap; justify-content: flex-end; } .rec-text small { max-width: 160px; } }
+
 /* ---------- picking ---------- */
 .pick-layer { position: fixed; inset: 0; cursor: crosshair; background: transparent; }
 .pick-box { position: fixed; pointer-events: none; border: 2px solid #2b45e0; border-radius: 4px; background: rgba(43,69,224,.10); transition: all .06s ease-out; }
@@ -199,7 +232,7 @@ button { font: inherit; color: inherit; }
 @media (max-width: 640px) { .cmp-panes { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .dock, .pop, .pick-box { transition: none !important; animation: none !important; }
-  .spin, .mini-spin { animation: none !important; }
+  .dock, .pop, .pick-box, .rec { transition: none !important; animation: none !important; }
+  .spin, .mini-spin, .rec-dot { animation: none !important; }
 }
 `;

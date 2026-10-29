@@ -7,6 +7,7 @@ export default function Filters() {
       {filters.map((f) => (
         <span className="chip" key={f}>{f}</span>
       ))}
+      {filters.length === 0 && <span className="none">No filters</span>}
       <button className="clear" onClick={() => setFilters([])}>Clear filters</button>
     </div>
   )

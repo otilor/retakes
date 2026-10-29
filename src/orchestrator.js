@@ -8,8 +8,11 @@ import { UserError, spawnGroup, stopTree, Tail, stripAnsi } from './proc.js';
 import { installCommand, filesToCopy } from './project.js';
 import * as G from './git.js';
 import { takePrompt, refinePrompt, fixPrompt, continuePrompt } from './prompt.js';
+import { FlowRunner, loadFlows, saveFlow, deleteFlow, describeStep } from './flows.js';
 
 const MAX_ERRORS = 20;
+// Give hot reload a moment to apply the agent's last edits before replaying flows.
+const FLOW_SETTLE_MS = 1500;
 
 /**
  * Owns every version of the app: main (your own checkout) and the takes, each a
@@ -27,9 +30,19 @@ export class Orchestrator extends EventEmitter {
     this.state = this.loadState();
     this.takes = new Map();
     this.branch = null;
+    this.flowsShotDir = path.join(project.stateDir, 'flows');
+    this.flows = loadFlows(project.appDir);
+    this.flowRunner = new FlowRunner({
+      appDir: project.appDir,
+      runtimeDir: path.join(path.dirname(path.dirname(project.stateDir)), 'runtime'),
+      log: (...a) => this.log(...a),
+      notice: (kind, text) => this.notice(kind, text),
+    });
     this.main = {
       id: 'main',
       errors: new Map(),
+      flows: new Map(),
+      flowsGen: 0,
       server: new DevServer({
         project,
         appDir: project.appDir,
@@ -83,6 +96,7 @@ export class Orchestrator extends EventEmitter {
         branch: this.branch,
         server: this.main.server.info(),
         errors: errs(this.main.errors),
+        flows: this.flowResults(this.main),
         switchable: this.main.server.status === 'ready',
       },
     ];
@@ -106,11 +120,31 @@ export class Orchestrator extends EventEmitter {
         canRetry: !t.run && m.runs.length > 0 && m.runs[m.runs.length - 1].ok === false,
         lastResult: lastResult(m),
         errors: errs(t.errors),
+        flows: this.flowResults(t),
         switchable: !!t.server && t.server.status === 'ready',
         createdAt: m.createdAt,
       });
     }
-    return { project: { name: this.p.name, branch: this.branch }, versions };
+    const flows = this.flows.map((f) => ({ id: f.id, name: f.name, start: f.start, steps: f.steps.length }));
+    return { project: { name: this.p.name, branch: this.branch }, versions, flows };
+  }
+
+  flowResults(v) {
+    return this.flows.map((f) => {
+      const r = v.flows.get(f.id);
+      if (!r) return { id: f.id, name: f.name, status: 'none' };
+      return {
+        id: f.id,
+        name: f.name,
+        status: r.status,
+        failedStep: r.failedStep || null,
+        error: r.error || null,
+        problems: r.problems || [],
+        alsoOnMain: !!r.alsoOnMain,
+        shot: !!r.shot,
+        ms: r.ms || null,
+      };
+    });
   }
 
   version(id) {
@@ -180,6 +214,7 @@ export class Orchestrator extends EventEmitter {
       if (t.install) jobs.push(t.install.stop());
       if (t.server) jobs.push(t.server.stop());
     }
+    jobs.push(this.flowRunner.close());
     await Promise.allSettled(jobs);
     try {
       this.save();
@@ -214,6 +249,9 @@ export class Orchestrator extends EventEmitter {
       run: null,
       agent: { status: 'idle', step: null, error: null, startedAt: null },
       errors: new Map(),
+      flows: new Map(),
+      flowsGen: 0,
+      flowsPending: false,
     };
   }
 
@@ -308,7 +346,10 @@ export class Orchestrator extends EventEmitter {
       this.changed();
       t.server = new DevServer({ project: this.p, appDir: m.appDir, stopAt: m.dir, logFile: this.logFile(m.id) });
       t.server.on('change', (info) => {
-        if (info.status === 'ready') t.phase = 'live';
+        if (info.status === 'ready') {
+          t.phase = 'live';
+          if (t.flowsPending) this.flowsAfterRun(t);
+        }
         else if (info.status === 'failed' || info.status === 'crashed') {
           t.phase = 'failed';
           t.phaseError = info.error;
@@ -392,6 +433,7 @@ export class Orchestrator extends EventEmitter {
     t.run = run;
     t.agent = { status: 'running', step: kind === 'fix' ? 'Looking at the errors' : 'Reading the code', error: null, startedAt: Date.now() };
     t.errors.clear();
+    this.resetFlows(t);
     this.save();
     this.changed();
     run.on('step', (s) => {
@@ -439,6 +481,7 @@ export class Orchestrator extends EventEmitter {
         } else {
           this.notice('warning', `agent-${m.n} finished without changing anything`, { version: m.id });
         }
+        this.flowsAfterRun(t);
       } else {
         entry.error = res.error;
         entry.stopped = !!res.stopped;
@@ -495,9 +538,12 @@ export class Orchestrator extends EventEmitter {
   fix(id) {
     const t = this.takeOrThrow(id);
     const errors = [...t.errors.values()];
-    if (!errors.length) throw new UserError(`agent-${t.meta.n} has no errors to fix.`);
-    const prompt = t.meta.hasSession ? fixPrompt(errors) : `${takePrompt({ request: t.meta.prompt, element: t.meta.element })}\n\n${fixPrompt(errors)}`;
-    this.runAgent(t, 'fix', `Fix ${errors.length === 1 ? 'an error' : `${errors.length} errors`}`, prompt);
+    const flows = this.brokenFlows(t);
+    if (!errors.length && !flows.length) throw new UserError(`agent-${t.meta.n} has nothing to fix.`);
+    const fixText = fixPrompt(errors, flows);
+    const prompt = t.meta.hasSession ? fixText : `${takePrompt({ request: t.meta.prompt, element: t.meta.element })}\n\n${fixText}`;
+    const what = [errors.length ? plural(errors.length, 'error') : '', flows.length ? plural(flows.length, 'broken flow') : ''].filter(Boolean).join(' and ');
+    this.runAgent(t, 'fix', `Fix ${what}`, prompt);
   }
 
   async stopAgent(id) {
@@ -544,6 +590,138 @@ export class Orchestrator extends EventEmitter {
       this.log(`agent-${m.n}: discarded`);
       this.notice('info', `Discarded agent-${m.n}`);
     }
+  }
+
+  // ---------- recorded flows ----------
+
+  /** Flows that fail on a take but pass on main: the ones the take broke. */
+  brokenFlows(t) {
+    const out = [];
+    for (const f of this.flows) {
+      const r = t.flows.get(f.id);
+      if (!r || r.status !== 'fail' || r.alsoOnMain) continue;
+      out.push({ name: f.name, start: f.start, steps: f.steps.map(describeStep), failedStep: r.failedStep, error: r.error, problems: r.problems || [] });
+    }
+    return out;
+  }
+
+  resetFlows(v) {
+    v.flowsGen += 1;
+    v.flows.clear();
+    v.flowsPending = false;
+  }
+
+  /** After a take's agent finishes, replay every flow on it once its dev server is up. */
+  flowsAfterRun(t) {
+    t.flowsPending = false;
+    if (!this.flows.length && !loadFlows(this.p.appDir).length) return;
+    if (!t.server || t.server.status !== 'ready') {
+      t.flowsPending = true;
+      return;
+    }
+    const gen = t.flowsGen;
+    setTimeout(() => {
+      if (this.closed || t.flowsGen !== gen || t.run || !this.takes.has(t.meta.id)) return;
+      try {
+        this.runFlows(t.meta.id).catch((err) => this.log(`agent-${t.meta.n}: couldn't replay flows`, err.message));
+      } catch (err) {
+        this.log(`agent-${t.meta.n}: couldn't replay flows`, err.message);
+      }
+    }, FLOW_SETTLE_MS).unref();
+  }
+
+  saveFlow(raw, version) {
+    const flow = saveFlow(this.p.appDir, raw);
+    this.flows = loadFlows(this.p.appDir);
+    for (const v of [this.main, ...this.takes.values()]) v.flows.delete(flow.id);
+    this.log(`flows: saved "${flow.name}" (${flow.steps.length} steps) to .orch/flows/${flow.id}.json`);
+    this.changed();
+    // Replay it right away on the version it was recorded on, so a bad recording shows up now.
+    const on = version && this.version(version) && !this.version(version).run ? version : 'main';
+    this.runFlows(on, { only: [flow.id], announce: true }).catch((err) => this.log('flows: replay failed', err.message));
+    return { id: flow.id, name: flow.name, steps: flow.steps.length };
+  }
+
+  deleteFlow(id) {
+    deleteFlow(this.p.appDir, id);
+    this.flows = loadFlows(this.p.appDir);
+    for (const v of [this.main, ...this.takes.values()]) v.flows.delete(id);
+    this.changed();
+  }
+
+  /** Replay flows on one version. Failures on a take are checked against main before they count. */
+  // Checks run before it returns, so the caller gets a UserError right away; the replays run after.
+  runFlows(id, { only = null, announce = false } = {}) {
+    const v = this.version(id);
+    if (!v) throw new UserError("That version doesn't exist anymore.");
+    if (id !== 'main' && v.run) throw new UserError(`${this.nameOf(id)} is still working. Its flows run when it's done.`);
+    this.flows = loadFlows(this.p.appDir);
+    const list = only ? this.flows.filter((f) => only.includes(f.id)) : this.flows;
+    if (!list.length) throw new UserError(only ? "That flow doesn't exist anymore." : 'Record a flow first.');
+    return this.replayFlows(id, v, list, announce);
+  }
+
+  async replayFlows(id, v, list, announce) {
+    const gen = v.flowsGen;
+    for (const f of list) v.flows.set(f.id, { status: 'queued' });
+    this.changed();
+    fs.mkdirSync(this.flowsShotDir, { recursive: true });
+    const current = () => !this.closed && v.flowsGen === gen && this.version(id) === v;
+    const broke = [];
+    for (const f of list) {
+      await this.flowRunner.enqueue(async () => {
+        if (!current()) return;
+        const target = this.target(id);
+        if (!target) {
+          v.flows.set(f.id, { status: 'fail', error: `${this.nameOf(id)}'s dev server isn't running.` });
+          return;
+        }
+        v.flows.set(f.id, { status: 'running' });
+        this.changed();
+        const shot = path.join(this.flowsShotDir, `${id}-${f.id}.png`);
+        fs.rmSync(shot, { force: true });
+        const r = await this.flowRunner.replay(f, `http://${target.host}:${target.port}`, { screenshot: shot });
+        if (!current()) return;
+        const result = { status: r.ok ? 'pass' : 'fail', failedStep: r.failedStep, error: r.error, problems: r.problems, ms: r.ms, shot: fs.existsSync(shot) };
+        if (!r.ok && id !== 'main') {
+          // Only blame the take for what it broke: if main fails the same way, it was already broken.
+          const mainTarget = this.target('main');
+          if (mainTarget) {
+            const m = await this.flowRunner.replay(f, `http://${mainTarget.host}:${mainTarget.port}`);
+            if (this.main.flows.get(f.id)?.status !== 'running') this.main.flows.set(f.id, { status: m.ok ? 'pass' : 'fail', failedStep: m.failedStep, error: m.error, problems: m.problems, ms: m.ms });
+            result.alsoOnMain = !m.ok;
+          }
+          if (!current()) return;
+        }
+        v.flows.set(f.id, result);
+        this.log(`${this.nameOf(id)}: flow "${f.name}" ${r.ok ? 'passed' : `failed${result.alsoOnMain ? ' (fails on main too)' : ''}: ${clip(r.error, 120)}`}`);
+        if (!r.ok && !result.alsoOnMain) broke.push({ f, r });
+        this.changed();
+      });
+    }
+    if (!current()) return;
+    const name = this.nameOf(id);
+    if (announce) {
+      const f = list[0];
+      const r = v.flows.get(f.id);
+      if (r && r.status === 'pass') this.notice('success', `Saved "${f.name}". It passes on ${name}.`, { version: id });
+      else if (r) this.notice('warning', `Saved "${f.name}", but it didn't pass on ${name}: ${clip(r.error, 80)}`, { version: id, action: 'details' });
+    } else if (broke.length && id !== 'main') {
+      const text = broke.length === 1 ? `${name} broke "${clip(broke[0].f.name, 40)}": ${clip(broke[0].r.error, 70)}` : `${name} broke ${broke.length} of your flows`;
+      this.notice('warning', text, { version: id, action: 'fix' });
+    }
+  }
+
+  flowShot(id, flow) {
+    const v = this.version(id);
+    const r = v && v.flows.get(flow);
+    if (!r || !r.shot) return null;
+    const file = path.join(this.flowsShotDir, `${id}-${flow}.png`);
+    return fs.existsSync(file) ? file : null;
+  }
+
+  nameOf(id) {
+    return id === 'main' ? 'main' : `agent-${this.takes.get(id)?.meta.n}`;
   }
 
   // ---------- errors from the browser ----------
@@ -610,6 +788,10 @@ function lastResult(m) {
 function commitMessage(m, kind, text) {
   const head = kind === 'start' ? m.prompt : text;
   return `agent-${m.n}: ${clip(firstLine(head), 72)}\n\nMade with Orchestrator and Claude Code.`;
+}
+
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 function firstLine(s) {

@@ -359,7 +359,8 @@ try {
     await page.reload();
     await dock().waitFor();
     ok((await dock().getAttribute('data-edge')) === 'left', 'remembered after reload');
-    // Put it back.
+    // Put it back, once it has settled from the reload.
+    await page.waitForTimeout(600);
     const hb2 = await page.locator('orch-dock .handle').boundingBox();
     await page.mouse.move(hb2.x + 20, hb2.y + 20);
     await page.mouse.down();

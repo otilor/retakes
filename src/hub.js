@@ -251,6 +251,13 @@ export class Hub {
           res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
           return res.end(o.readLog(parts[1]) || 'Nothing logged yet.');
         }
+        if (parts[0] === 'flowshot' && parts[1] && parts[2]) {
+          const file = o.flowShot(parts[1], parts[2]);
+          if (!file) return sendJson(res, 404, { error: 'No screenshot' });
+          const img = fs.readFileSync(file);
+          res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store', 'content-length': img.length });
+          return res.end(img);
+        }
         return sendJson(res, 404, { error: 'Not found' });
       }
       if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
@@ -291,6 +298,17 @@ export class Hub {
       }
       if (a === 'versions' && id && action === 'clear-errors') {
         o.clearErrors(id);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (a === 'flows' && !id) {
+        return sendJson(res, 200, { flow: o.saveFlow(body.flow, typeof body.version === 'string' ? body.version : 'main') });
+      }
+      if (a === 'flows' && id && action === 'delete') {
+        o.deleteFlow(id);
+        return sendJson(res, 200, { ok: true });
+      }
+      if (a === 'versions' && id && action === 'run-flows') {
+        o.runFlows(id, { only: Array.isArray(body.only) ? body.only.map(String) : null }).catch((err) => this.log('Flow replay failed', err.stack || err.message));
         return sendJson(res, 200, { ok: true });
       }
       if (a === 'pin') {

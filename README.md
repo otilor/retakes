@@ -33,14 +33,25 @@ That starts your dev server behind a hub at **http://localhost:4300** and opens 
 | Try another take | **Try another** runs the same request again, asking for a different approach. |
 | Compare | The split-screen button shows two versions side by side and scrolls them together. |
 | Fix errors | If a take throws in the browser, its tile gets a badge. **Fix** sends the errors back to that take's Claude session. |
+| Record a flow | Press **F**, then **Record a flow**, and use the page the way you'd test it: type, click, press Enter. **Add check** picks text that should be on the page. Press **Done** and name it. |
+| Catch broken flows | When a take's agent finishes, your flows replay on it in the background. If a take breaks one that still passes on main, its tile gets a badge, and **Fix** sends the flow and the failing step to its agent. |
 | Keep one | **Keep** merges the take into the branch you have checked out, as one merge commit, then removes it. |
 | Throw one away | **Discard** deletes the take, its folder and its branch. |
 
-Notifications (done, failed, errors, kept) appear at the top of the page via [Notch](https://notch.devsethi.me/). Press **P** to point and prompt, **C** to compare, **.** to hide or show the dock, and **Esc** to close panels. Drag the dock by its handle to any edge; right-click the handle for theme and position.
+Notifications (done, failed, errors, kept) appear at the top of the page via [Notch](https://notch.devsethi.me/). Press **P** to point and prompt, **C** to compare, **F** for flows, **.** to hide or show the dock, and **Esc** to close panels. Drag the dock by its handle to any edge; right-click the handle for theme and position.
 
 ## Whose Claude it uses
 
 Orchestrator has no API key of its own. Each request is one headless run of your own Claude Code, signed in as you, so it counts against your Claude plan (or your API key, if Claude Code uses one). Takes use **Sonnet** by default, which handles UI work well. Runs are tuned for quick UI edits: low effort, no MCP servers, no subagents or web lookups. Set `"agent": { "model": "haiku" }` for lighter use, `"opus"` for harder changes, or `"effort": "high"` when a change needs more thought.
+
+## Flows
+
+A flow is a short user journey you record once, like "search for Lisbon, clear the filters, check it says No filters". Orchestrator replays every flow with [Playwright](https://playwright.dev) on each take after its agent finishes, headless and in the background, against that take's own dev server. A failure only counts against a take if the same flow passes on main.
+
+- Flows are saved in your app at `.orch/flows/<name>.json`, next to a generated `<name>.spec.mjs` Playwright test you can run in CI. Commit them to share them.
+- Each step remembers a few ways to find its element (test ids, labels, roles, then its position), so a take that only restyles or renames a button doesn't break the flow. Checks are strict: if the text changes, the check fails.
+- Replays use your app's own Playwright if it has one. Otherwise Orchestrator installs `playwright-core` once into `~/.orch/runtime`, and uses your Chrome or Edge. It downloads a browser (about 150 MB) only if you have neither.
+- Flows run against your dev servers, so a flow that saves data saves it each time it runs.
 
 ## How it works
 
@@ -93,6 +104,7 @@ npm run build      # bundles the dock into dist/dock.js
 npm test           # unit tests
 npm run test:e2e   # every flow end to end in a real browser, with a stand-in agent
 npm run test:e2e:next  # the same on a Next.js app
+npm run test:e2e:flows # recording a flow in the dock and replaying it on takes
 ```
 
 ## License

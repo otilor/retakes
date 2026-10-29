@@ -45,7 +45,7 @@ try {
       process.exit(1);
     }
     out({ type: 'assistant', message: { content: [{ type: 'text', text: 'Signed in now, so I finished it.' }] } });
-  } else if (/errors in the browser/.test(prompt)) {
+  } else if (/errors in the browser|recorded these flows/.test(prompt)) {
     await edit('src/Filters.jsx', 'setFilters(undefined)', 'setFilters([])');
     out({ type: 'assistant', message: { content: [{ type: 'text', text: 'Fixed: clearing filters now sets an empty list.' }] } });
   } else if (/fail/i.test(request)) {
