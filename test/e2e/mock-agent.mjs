@@ -36,7 +36,16 @@ await sleep(300);
 
 const request = (prompt.match(/"([^"]+)"/) || [])[1] || prompt;
 try {
-  if (/errors in the browser/.test(prompt)) {
+  if (/signin/i.test(request)) {
+    if (flag('--session-id')) {
+      // Like Claude Code when its sign-in has expired: a synthetic reply, then an error result.
+      const msg = 'Failed to authenticate: OAuth session expired and could not be refreshed';
+      out({ type: 'assistant', message: { model: '<synthetic>', content: [{ type: 'text', text: msg }] } });
+      out({ type: 'result', subtype: 'success', is_error: true, api_error_status: 401, result: msg, total_cost_usd: 0 });
+      process.exit(1);
+    }
+    out({ type: 'assistant', message: { content: [{ type: 'text', text: 'Signed in now, so I finished it.' }] } });
+  } else if (/errors in the browser/.test(prompt)) {
     await edit('src/Filters.jsx', 'setFilters(undefined)', 'setFilters([])');
     out({ type: 'assistant', message: { content: [{ type: 'text', text: 'Fixed: clearing filters now sets an empty list.' }] } });
   } else if (/fail/i.test(request)) {

@@ -103,7 +103,7 @@ export class AgentRun extends EventEmitter {
           (r && (r.result || (Array.isArray(r.errors) && r.errors.join('\n')) || r.subtype)) ||
           this.stderr.text(12) ||
           `Claude Code exited with code ${code}.`;
-        resolve({ ok: false, error: String(why), cost: r ? Number(r.total_cost_usd) || 0 : 0 });
+        resolve({ ok: false, error: explainError(why, r), cost: r ? Number(r.total_cost_usd) || 0 : 0 });
       });
       child.stdin.on('error', () => {});
       child.stdin.end(this.prompt);
@@ -119,7 +119,9 @@ export class AgentRun extends EventEmitter {
       return;
     }
     if (msg && typeof msg.session_id === 'string' && ((msg.type === 'system' && msg.subtype === 'init') || msg.type === 'result')) {
+      const first = !this.sessionSeen;
       this.sessionSeen = msg.session_id;
+      if (first) this.emit('session', msg.session_id);
     }
     if (msg.type === 'assistant' && msg.message && Array.isArray(msg.message.content)) {
       for (const c of msg.message.content) {
@@ -139,6 +141,29 @@ export class AgentRun extends EventEmitter {
     this.stopped = true;
     if (this.child) await stopTree(this.child, 2000);
   }
+}
+
+/**
+ * Claude Code's errors that only the user can fix (signing in, limits) become plain
+ * instructions, with the original message kept underneath.
+ */
+export function explainError(text, result) {
+  const s = String(text || '').trim();
+  const status = Number(result && result.api_error_status) || 0;
+  const say = (what, then) => `${what}\n${then}${s ? `\n(${s})` : ''}`;
+  if (status === 401 || /oauth|failed to authenticate|not logged in|please run \/login|invalid api key/i.test(s)) {
+    return say('Claude Code needs you to sign in again.', 'Run `claude` in a terminal, type /login, then press Retry.');
+  }
+  if (/credit balance/i.test(s)) {
+    return say('Your Anthropic credit balance is too low.', 'Add credit, or sign in with a Claude plan (`claude`, then /login), then press Retry.');
+  }
+  if (status === 429 || /usage limit|limit reached|rate limit/i.test(s)) {
+    return say("You've hit a Claude usage limit.", 'Wait until it resets, then press Retry.');
+  }
+  if (status >= 500 || /overloaded/i.test(s)) {
+    return say('Claude is having trouble on its side.', 'Wait a minute, then press Retry.');
+  }
+  return s;
 }
 
 export function describeTool(name, input, cwd) {
