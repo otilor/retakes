@@ -36,11 +36,11 @@ That starts your dev server behind a hub at **http://localhost:4300** and opens 
 | Keep one | **Keep** merges the take into the branch you have checked out, as one merge commit, then removes it. |
 | Throw one away | **Discard** deletes the take, its folder and its branch. |
 
-Notifications (done, failed, errors, kept) appear at the top of the page via [Notch](https://notch.devsethi.me/). Press **.** to hide or show the dock, and **Esc** to close panels. Drag the dock by its handle to any edge; right-click the handle for theme and position.
+Notifications (done, failed, errors, kept) appear at the top of the page via [Notch](https://notch.devsethi.me/). Press **P** to point and prompt, **C** to compare, **.** to hide or show the dock, and **Esc** to close panels. Drag the dock by its handle to any edge; right-click the handle for theme and position.
 
-## What it costs
+## Whose Claude it uses
 
-Each request is one headless Claude Code run, billed to your Claude account like any other. Takes use **Sonnet** by default, which handles UI work well for a fraction of Opus's price. The cost of each take shows in its panel. A typical small change costs a few cents; set `"agent": { "model": "haiku" }` to go cheaper or `"opus"` for harder changes.
+Orchestrator has no API key of its own. Each request is one headless run of your own Claude Code, signed in as you, so it counts against your Claude plan (or your API key, if Claude Code uses one). Takes use **Sonnet** by default, which handles UI work well. Runs are tuned for quick UI edits: low effort, no MCP servers, no subagents or web lookups. Set `"agent": { "model": "haiku" }` for lighter use, `"opus"` for harder changes, or `"effort": "high"` when a change needs more thought.
 
 ## How it works
 
@@ -62,6 +62,7 @@ Optional. Put `orch.config.json` in your app's folder:
   "copy": [".env.local"],                    // files copied into each take (default: .env*)
   "agent": {
     "model": "haiku",                        // sonnet by default
+    "effort": "medium",                      // low by default, for quick edits
     "args": ["--max-turns", "30"]            // extra Claude Code flags
   }
 }

@@ -1,6 +1,7 @@
 const RULES = `How to work:
 - You're in a git worktree: a private copy of the user's project made for this change. The app's dev server is already running from this folder with hot reload, so the user is watching your edits land live. Don't start a dev server and don't commit; Orchestrator commits your work when you finish.
 - Keep the change focused on the request. Don't refactor unrelated code. Don't add dependencies; if a new package is truly needed, say so in your final message instead.
+- Be quick: the user is waiting. Go straight to the file that renders the element, make the edit, and stop. Don't run builds, tests or linters.
 - When you're done, reply with one or two plain sentences on what you changed.`;
 
 function clip(s, n) {

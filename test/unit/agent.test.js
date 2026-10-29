@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AgentRun, describeTool, explainError } from '../../src/agent.js';
+import { AgentRun, describeTool, explainError, setAgentHelp } from '../../src/agent.js';
 import { takePrompt, refinePrompt, fixPrompt, describeElement, continuePrompt } from '../../src/prompt.js';
 
 const argsOf = (opts) => new AgentRun({ cwd: '/tmp', prompt: 'x', sessionId: 'sid', ...opts }).args();
@@ -72,4 +72,20 @@ test('explainError turns sign-in and limit errors into instructions', () => {
 test('continuePrompt asks to finish the same request', () => {
   const p = continuePrompt(' widen it ');
   assert.ok(p.includes('"widen it"') && p.includes('Pick up where you left off'));
+});
+
+test('speed flags are passed only when this Claude Code version knows them', () => {
+  setAgentHelp('  --model <m>');
+  const old = argsOf({});
+  assert.ok(!old.includes('--effort') && !old.includes('--strict-mcp-config') && !old.includes('--disallowedTools'));
+  setAgentHelp('  --effort <level>\n  --strict-mcp-config\n  --disallowedTools <tools...>');
+  const now = argsOf({});
+  assert.equal(valueAfter(now, '--effort'), 'low');
+  assert.ok(now.includes('--strict-mcp-config'));
+  assert.deepEqual(now.slice(now.indexOf('--disallowedTools') + 1, now.indexOf('--disallowedTools') + 5), ['Task', 'Agent', 'WebSearch', 'WebFetch']);
+  assert.equal(valueAfter(argsOf({ config: { effort: 'high' } }), '--effort'), 'high');
+  const own = argsOf({ config: { args: ['--effort=medium', '--mcp-config', 'm.json'] } });
+  assert.equal(own.filter((a) => a.startsWith('--effort')).length, 1);
+  assert.ok(!own.includes('--strict-mcp-config'));
+  setAgentHelp(null);
 });

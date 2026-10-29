@@ -108,6 +108,7 @@ export default function App({ host, restored, watcher }) {
   const [prefs, setPrefsState] = useState(loadPrefs);
   const [hidden, setHidden] = useState(false);
   const [pop, setPop] = useState(null);
+  const keysRef = useRef({});
   const [mode, setMode] = useState(null);
   const [picked, setPicked] = useState(null);
   const [drag, setDrag] = useState(null);
@@ -289,6 +290,16 @@ export default function App({ host, restored, watcher }) {
           setPop(null);
           setPrefs((p) => ({ ...p, open: !p.open }));
         }
+        return;
+      }
+      if (hidden || mode === 'compare') return;
+      const key = e.key.toLowerCase();
+      if (key === 'p' && mode !== 'pick') {
+        e.preventDefault();
+        keysRef.current.onPrompt();
+      } else if (key === 'c') {
+        e.preventDefault();
+        keysRef.current.onCompare();
       }
     };
     addEventListener('keydown', onKey, true);
@@ -377,6 +388,8 @@ export default function App({ host, restored, watcher }) {
     setPicked(null);
     setMode('pick');
   };
+
+  keysRef.current = { onPrompt, onCompare };
 
   if (!CFG.token) return null;
 
@@ -476,14 +489,14 @@ export default function App({ host, restored, watcher }) {
                 })}
               </div>
               <span className="sep" aria-hidden="true" />
-              <button type="button" className="btn-i" aria-label="Compare side by side" data-tip="Compare side by side" onClick={onCompare}>
+              <button type="button" className="btn-i" aria-label="Compare side by side" data-tip="Compare side by side · C" onClick={onCompare}>
                 <CompareIcon />
               </button>
               <button
                 type="button"
                 className={`btn-i${mode === 'pick' || (pop && pop.kind === 'compose') ? ' on' : ''}`}
                 aria-label="Prompt a change"
-                data-tip="Prompt a change"
+                data-tip="Point and prompt · P"
                 onClick={onPrompt}
               >
                 <PromptIcon />
@@ -681,7 +694,6 @@ function VersionPanel({ v, project, onClose, setPop }) {
       )}
 
       <div className="row end">
-        {v.cost > 0 && <span className="cost">${v.cost.toFixed(2)}</span>}
         {running && (
           <button type="button" className="pbtn" disabled={busy} onClick={() => act(() => api(`takes/${v.id}/stop`, {}))}>
             Stop

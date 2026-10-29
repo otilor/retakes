@@ -1,10 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { EventEmitter } from 'node:events';
-import { spawnGroup, stopTree, Tail, stripAnsi } from './proc.js';
+import { run, spawnGroup, stopTree, Tail, stripAnsi } from './proc.js';
 import { splitArgs } from './project.js';
 
 const isWin = process.platform === 'win32';
+
+let agentHelp = null;
+
+/** Read `claude --help` once, so runs only pass flags this Claude Code version supports. */
+export async function probeAgent(command = 'claude') {
+  const [cmd, ...pre] = splitArgs(command);
+  agentHelp = await run(cmd, [...pre, '--help'], { timeout: 15000 }).catch((err) => err.stdout || '');
+  return agentHelp;
+}
+
+/** For tests: pretend `claude --help` printed this. */
+export function setAgentHelp(text) {
+  agentHelp = text;
+}
 
 /**
  * One headless Claude Code run in a take's worktree.
@@ -38,8 +52,17 @@ export class AgentRun extends EventEmitter {
     if (this.resume) args.push('--resume', this.sessionId);
     else args.push('--session-id', this.sessionId);
     const extra = this.config.args || [];
+    const has = (flag) => extra.some((a) => a === flag || a.startsWith(`${flag}=`));
     // Sonnet by default: good UI work at a fraction of Opus's cost. Set agent.model to change it.
-    if (!extra.some((a) => a === '--model' || a.startsWith('--model='))) args.push('--model', this.config.model || 'sonnet');
+    if (!has('--model')) args.push('--model', this.config.model || 'sonnet');
+    // Faster runs for small UI edits: less thinking, no MCP servers to start, no subagents or web
+    // lookups. Only flags this Claude Code version knows (see probeAgent); agent.effort overrides.
+    const known = (flag) => !!(agentHelp && agentHelp.includes(flag));
+    if (!has('--effort') && known('--effort')) args.push('--effort', this.config.effort || 'low');
+    if (!has('--mcp-config') && !has('--strict-mcp-config') && known('--strict-mcp-config')) args.push('--strict-mcp-config');
+    if (!has('--disallowedTools') && !has('--disallowed-tools') && known('--disallowedTools')) {
+      args.push('--disallowedTools', 'Task', 'Agent', 'WebSearch', 'WebFetch');
+    }
     args.push(...extra);
     return args;
   }

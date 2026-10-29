@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { DevServer } from './devserver.js';
-import { AgentRun } from './agent.js';
+import { AgentRun, probeAgent } from './agent.js';
 import { UserError, spawnGroup, stopTree, Tail, stripAnsi } from './proc.js';
 import { installCommand, filesToCopy } from './project.js';
 import * as G from './git.js';
@@ -102,7 +102,6 @@ export class Orchestrator extends EventEmitter {
         phaseError: t.phaseError,
         server: t.server ? t.server.info() : { status: 'stopped', port: null, error: null },
         agent: { ...t.agent },
-        cost: m.cost || 0,
         runs: m.runs.length,
         canRetry: !t.run && m.runs.length > 0 && m.runs[m.runs.length - 1].ok === false,
         lastResult: lastResult(m),
@@ -134,6 +133,7 @@ export class Orchestrator extends EventEmitter {
   // ---------- lifecycle ----------
 
   async start() {
+    probeAgent((this.p.config.agent && this.p.config.agent.command) || 'claude');
     this.branch = await G.currentBranch(this.p.gitRoot).catch(() => null);
     this.branchTimer = setInterval(async () => {
       const b = await G.currentBranch(this.p.gitRoot).catch(() => this.branch);
@@ -431,8 +431,7 @@ export class Orchestrator extends EventEmitter {
         entry.commit = sha;
         t.agent = { status: 'done', step: null, error: null, startedAt: null };
         t.errors.clear();
-        const cost = entry.cost ? ` ($${entry.cost.toFixed(2)})` : '';
-        this.log(`agent-${m.n}: done${cost}${sha || commitError ? '' : ', no changes'}`);
+        this.log(`agent-${m.n}: done${sha || commitError ? '' : ', no changes'}`);
         if (commitError) {
           this.notice('error', `agent-${m.n} finished, but its work couldn't be committed. See the terminal.`, { version: m.id });
         } else if (sha) {

@@ -105,7 +105,8 @@ export function loadConfig(appDir) {
     if (a.args !== undefined && (!Array.isArray(a.args) || a.args.some((x) => typeof x !== 'string'))) bad('agent.args', 'a list of strings');
     if (a.permissionMode !== undefined && typeof a.permissionMode !== 'string') bad('agent.permissionMode', 'a string');
     if (a.model !== undefined && (typeof a.model !== 'string' || !a.model.trim())) bad('agent.model', 'a model name, like "sonnet", "haiku" or "opus"');
-    out.agent = { command: a.command, args: a.args, permissionMode: a.permissionMode, model: a.model };
+    if (a.effort !== undefined && !['low', 'medium', 'high', 'xhigh', 'max'].includes(a.effort)) bad('agent.effort', 'one of "low", "medium", "high", "xhigh" or "max"');
+    out.agent = { command: a.command, args: a.args, permissionMode: a.permissionMode, model: a.model, effort: a.effort };
   }
   return out;
 }

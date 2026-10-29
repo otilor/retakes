@@ -48,7 +48,7 @@ test('loadConfig validates each field', () => {
   const dir = tmp();
   assert.deepEqual(loadConfig(dir), {});
   write(dir, 'orch.config.json', JSON.stringify({ port: 4400, agent: { model: 'haiku' } }));
-  assert.deepEqual(loadConfig(dir), { port: 4400, agent: { command: undefined, args: undefined, permissionMode: undefined, model: 'haiku' } });
+  assert.deepEqual(loadConfig(dir), { port: 4400, agent: { command: undefined, args: undefined, permissionMode: undefined, model: 'haiku', effort: undefined } });
 
   const bad = [
     '{ not json',
@@ -59,6 +59,7 @@ test('loadConfig validates each field', () => {
     JSON.stringify({ agent: [] }),
     JSON.stringify({ agent: { args: '--model opus' } }),
     JSON.stringify({ agent: { model: ' ' } }),
+    JSON.stringify({ agent: { effort: 'turbo' } }),
   ];
   for (const text of bad) {
     write(dir, 'orch.config.json', text);

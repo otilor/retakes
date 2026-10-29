@@ -216,7 +216,6 @@ try {
     await page.screenshot({ path: path.join(SHOTS, '04-building.png') });
     t1 = await waitReady('t1');
     ok(t1.agent.status === 'done', `agent done (${t1.agent.status}: ${t1.agent.error})`);
-    ok(t1.cost > 0, 'cost recorded');
     ok(t1.lastResult && t1.lastResult.includes('Done'), 'result text kept');
     const log = git('log', '--format=%s', 'orch/take-1', '-n', '1').trim();
     ok(log === 'agent-1: make the search bar larger', `commit message (${log})`);
@@ -368,6 +367,52 @@ try {
     await page.mouse.move(640, 790, { steps: 6 });
     await page.mouse.up();
     await until(async () => (await dock().getAttribute('data-edge')) === 'bottom', 'back at the bottom');
+  });
+
+  await step('docked at the top, notifications move to the bottom', async () => {
+    await page.waitForTimeout(600); // let the dock settle from the last drag
+    const hb = await page.locator('orch-dock .handle').boundingBox();
+    await page.mouse.move(hb.x + 20, hb.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(600, 300, { steps: 6 });
+    await page.mouse.move(640, 15, { steps: 6 });
+    await page.mouse.up();
+    await until(async () => (await dock().getAttribute('data-edge')) === 'top', 'docked at the top');
+    // "Hide until reload" shows a notification; bring the dock straight back to compare positions.
+    await page.locator('orch-dock .handle').click({ button: 'right' });
+    await page.locator('orch-dock .pop button', { hasText: 'Hide until reload' }).click();
+    await until(async () => (await toastText()).includes('Dock hidden'), 'hidden toast');
+    await page.keyboard.press('.');
+    await dock().waitFor();
+    await page.waitForTimeout(500);
+    const d = await dock().boundingBox();
+    const t = await page.evaluate(() => {
+      const el = document.querySelector('orch-dock').shadowRoot.querySelector('.nt-root');
+      const r = [...el.querySelectorAll('*')].map((e) => e.getBoundingClientRect()).filter((r) => r.width > 40 && r.height > 20)[0];
+      return r && { top: r.top, bottom: r.bottom };
+    });
+    ok(t && t.top > 400, `toast at the bottom (${JSON.stringify(t)})`);
+    ok(t.top > d.y + d.height, 'toast and dock do not overlap');
+    await page.screenshot({ path: path.join(SHOTS, '10b-top.png') });
+    const hb2 = await page.locator('orch-dock .handle').boundingBox();
+    await page.mouse.move(hb2.x + 20, hb2.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(600, 500, { steps: 6 });
+    await page.mouse.move(640, 790, { steps: 6 });
+    await page.mouse.up();
+    await until(async () => (await dock().getAttribute('data-edge')) === 'bottom', 'back at the bottom');
+  });
+
+  await step('P opens the pick tool, but not while typing in the app', async () => {
+    await page.locator('.search-input').click();
+    await page.keyboard.type('p');
+    ok(!(await page.locator('orch-dock .pick-hint').isVisible()), 'typing p in the app does nothing');
+    await page.locator('.search-input').fill('');
+    await page.locator('body').click({ position: { x: 600, y: 110 } });
+    await page.keyboard.press('p');
+    await page.locator('orch-dock .pick-hint').waitFor();
+    await page.keyboard.press('Escape');
+    await until(async () => !(await page.locator('orch-dock .pick-hint').isVisible()), 'picker closed');
   });
 
   await step('. collapses and opens the dock; clicking the handle does too', async () => {

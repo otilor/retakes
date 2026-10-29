@@ -154,7 +154,6 @@ button { font: inherit; color: inherit; }
 .pbtn.danger.armed { background: var(--fail); color: var(--bfail); box-shadow: none; }
 .pbtn[disabled] { opacity: .45; cursor: default; }
 .link { border: 0; padding: 0; background: none; color: var(--muted); font: 500 12px/1 system-ui, sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-.cost { margin-right: auto; color: var(--muted); font: 500 11.5px/1 ui-monospace, Menlo, monospace; }
 .field {
   display: block; width: 100%; min-height: 64px; max-height: 180px; resize: vertical; padding: 9px 11px; border: 0; border-radius: 10px;
   background: var(--field); box-shadow: inset 0 0 0 1px var(--field-line); color: var(--fg); outline: none;
