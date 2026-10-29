@@ -399,6 +399,34 @@ try {
     await until(async () => !(await version(id)), 'removed');
   });
 
+  await step('an expired Claude sign-in says how to fix it, and Retry resumes the take', async () => {
+    const r = await apiCall('takes', { prompt: 'signin then widen the search' });
+    const id = r.body.take.id;
+    await until(async () => (await version(id)).agent.status === 'failed', 'agent failed', 60000);
+    let v = await version(id);
+    ok(v.agent.error.startsWith('Claude Code needs you to sign in again.'), `plain message (${v.agent.error})`);
+    ok(v.agent.error.includes('/login') && v.agent.error.includes('OAuth session expired'), 'says how, keeps the original');
+    ok(v.canRetry, 'can retry');
+    await until(async () => (await toastText()).includes('needs you to sign in'), 'sign-in toast');
+    await page.locator('orch-dock .nt-root button', { hasText: 'Details' }).click();
+    const retry = page.locator('orch-dock .pop button', { hasText: 'Retry' });
+    await retry.waitFor();
+    await page.screenshot({ path: path.join(SHOTS, '12-signin.png') });
+    const first = mockCalls().at(-1);
+    await retry.click();
+    await until(async () => (await version(id)).agent.status === 'done', 'retry finished', 60000);
+    const again = mockCalls().at(-1);
+    const sid = first.args[first.args.indexOf('--session-id') + 1];
+    ok(again.args[again.args.indexOf('--resume') + 1] === sid, 'retry resumes the same session');
+    ok(again.prompt.includes('signin then widen the search') && again.prompt.includes('Pick up where you left off'), 'retry asks to finish the request');
+    v = await version(id);
+    ok(!v.canRetry && !v.agent.error, 'no longer failed');
+    await page.keyboard.press('Escape');
+    await waitReady(id);
+    await apiCall(`takes/${id}/discard`, {});
+    await until(async () => !(await version(id)), 'removed');
+  });
+
   await step('Stop ends a running agent', async () => {
     const r = await apiCall('takes', { prompt: 'slow change please' });
     const id = r.body.take.id;

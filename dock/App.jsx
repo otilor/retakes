@@ -145,6 +145,8 @@ export default function App({ host, restored, watcher }) {
     const opts = { duration: n.kind === 'error' || n.kind === 'warning' ? 10000 : 4000, dismissible: true };
     if (n.action === 'view' && n.version && n.version !== CFG.v) {
       opts.action = { label: 'View', onClick: () => switchTo(n.version, { from: CFG.v }) };
+    } else if (n.action === 'details' && n.version) {
+      opts.action = { label: 'Details', onClick: () => setPop({ kind: 'version', id: n.version }) };
     } else if (n.action === 'fix' && n.version && n.version !== 'main') {
       opts.action = {
         label: 'Fix it',
@@ -638,8 +640,8 @@ function VersionPanel({ v, project, onClose, setPop }) {
       )}
       {v.agent.status === 'failed' && v.agent.error && (
         <div className="note fail">
-          Claude Code stopped with a problem.
-          <pre>{v.agent.error}</pre>
+          {v.agent.error.split('\n')[0]}
+          {v.agent.error.includes('\n') && <pre>{v.agent.error.slice(v.agent.error.indexOf('\n') + 1)}</pre>}
         </div>
       )}
       {!running && v.lastResult && (
@@ -683,6 +685,11 @@ function VersionPanel({ v, project, onClose, setPop }) {
         {running && (
           <button type="button" className="pbtn" disabled={busy} onClick={() => act(() => api(`takes/${v.id}/stop`, {}))}>
             Stop
+          </button>
+        )}
+        {v.canRetry && (
+          <button type="button" className="pbtn primary" disabled={busy} onClick={() => act(() => api(`takes/${v.id}/retry`, {}))}>
+            Retry
           </button>
         )}
         {!viewing && v.switchable && (

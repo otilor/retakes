@@ -7,7 +7,7 @@ import { AgentRun } from './agent.js';
 import { UserError, spawnGroup, stopTree, Tail, stripAnsi } from './proc.js';
 import { installCommand, filesToCopy } from './project.js';
 import * as G from './git.js';
-import { takePrompt, refinePrompt, fixPrompt } from './prompt.js';
+import { takePrompt, refinePrompt, fixPrompt, continuePrompt } from './prompt.js';
 
 const MAX_ERRORS = 20;
 
@@ -104,6 +104,7 @@ export class Orchestrator extends EventEmitter {
         agent: { ...t.agent },
         cost: m.cost || 0,
         runs: m.runs.length,
+        canRetry: !t.run && m.runs.length > 0 && m.runs[m.runs.length - 1].ok === false,
         lastResult: lastResult(m),
         errors: errs(t.errors),
         switchable: !!t.server && t.server.status === 'ready',
@@ -158,6 +159,8 @@ export class Orchestrator extends EventEmitter {
     if (last && last.ok === undefined) {
       last.ok = false;
       last.error = 'Orchestrator was closed while the agent was working.';
+      // Claude Code refuses a --session-id it has seen before, so start the next run on a fresh one.
+      if (!meta.hasSession) meta.sessionId = crypto.randomUUID();
     }
     t.agent = last
       ? { status: last.ok ? 'done' : last.stopped ? 'stopped' : 'failed', step: null, error: last.ok ? null : last.error || null, startedAt: null }
@@ -395,12 +398,21 @@ export class Orchestrator extends EventEmitter {
       t.agent.step = s;
       this.changed();
     });
+    // Save the session as soon as it exists, so a follow-up resumes it even if this run fails.
+    run.on('session', (sid) => {
+      m.hasSession = true;
+      m.sessionId = sid;
+      this.save();
+    });
     run.start();
     run.done().then(async (res) => {
       t.run = null;
       if (run.sessionSeen) {
         m.hasSession = true;
-        if (run.sessionSeen !== m.sessionId) m.sessionId = run.sessionSeen;
+        m.sessionId = run.sessionSeen;
+      } else if (!m.hasSession) {
+        // Claude Code refuses a --session-id it has seen before, so the next run gets a fresh one.
+        m.sessionId = crypto.randomUUID();
       }
       entry.ok = res.ok;
       entry.cost = res.cost || 0;
@@ -443,7 +455,7 @@ export class Orchestrator extends EventEmitter {
           this.notice('info', `Stopped agent-${m.n}`, { version: m.id });
         } else {
           this.log(`agent-${m.n}: failed`, res.error);
-          this.notice('error', `agent-${m.n} hit a problem: ${clip(firstLine(res.error), 90)}`, { version: m.id });
+          this.notice('error', `agent-${m.n} hit a problem: ${clip(firstLine(res.error), 90)}`, { version: m.id, action: 'details' });
         }
       }
       this.save();
@@ -465,6 +477,20 @@ export class Orchestrator extends EventEmitter {
       ? refinePrompt(text, element)
       : takePrompt({ request: `${t.meta.prompt}\n\nAlso: ${text}`, element: element || t.meta.element });
     this.runAgent(t, 'refine', text.trim(), prompt);
+  }
+
+  /** Run a take's last request again after it failed or was stopped. */
+  retry(id) {
+    const t = this.takeOrThrow(id);
+    const m = t.meta;
+    const last = m.runs[m.runs.length - 1];
+    if (t.run) throw new UserError(`agent-${m.n} is still working.`);
+    if (!last || last.ok) throw new UserError(`agent-${m.n} has nothing to retry.`);
+    let prompt;
+    if (m.hasSession) prompt = continuePrompt(last.kind === 'start' ? m.prompt : last.text);
+    else if (last.kind === 'start') prompt = takePrompt({ request: m.prompt, element: m.element, take: m.attempt || 1 });
+    else prompt = takePrompt({ request: `${m.prompt}\n\nAlso: ${last.text}`, element: m.element });
+    this.runAgent(t, last.kind, last.text, prompt);
   }
 
   fix(id) {

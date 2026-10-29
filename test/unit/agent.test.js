@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AgentRun, describeTool } from '../../src/agent.js';
-import { takePrompt, refinePrompt, fixPrompt, describeElement } from '../../src/prompt.js';
+import { AgentRun, describeTool, explainError } from '../../src/agent.js';
+import { takePrompt, refinePrompt, fixPrompt, describeElement, continuePrompt } from '../../src/prompt.js';
 
 const argsOf = (opts) => new AgentRun({ cwd: '/tmp', prompt: 'x', sessionId: 'sid', ...opts }).args();
 const valueAfter = (args, flag) => args[args.indexOf(flag) + 1];
@@ -55,4 +55,21 @@ test('fixPrompt lists errors with a short stack and repeat count', () => {
   const p = fixPrompt([{ message: 'boom', stack: 'Error: boom\n at a\n at b', count: 3 }]);
   assert.ok(p.includes('- boom (seen 3 times)'));
   assert.ok(p.includes('    at a'));
+});
+
+test('explainError turns sign-in and limit errors into instructions', () => {
+  const expired = explainError('Failed to authenticate: OAuth session expired and could not be refreshed');
+  assert.ok(expired.startsWith('Claude Code needs you to sign in again.\n'));
+  assert.ok(expired.includes('/login'));
+  assert.ok(expired.endsWith('(Failed to authenticate: OAuth session expired and could not be refreshed)'));
+  assert.ok(explainError('Invalid API key · Fix external API key', { api_error_status: 401 }).startsWith('Claude Code needs you'));
+  assert.ok(explainError('Credit balance is too low').startsWith('Your Anthropic credit balance'));
+  assert.ok(explainError('Claude AI usage limit reached').startsWith("You've hit a Claude usage limit."));
+  assert.ok(explainError('API Error: 529 Overloaded').startsWith('Claude is having trouble'));
+  assert.equal(explainError('Mock failure on purpose.'), 'Mock failure on purpose.');
+});
+
+test('continuePrompt asks to finish the same request', () => {
+  const p = continuePrompt(' widen it ');
+  assert.ok(p.includes('"widen it"') && p.includes('Pick up where you left off'));
 });

@@ -270,6 +270,9 @@ export class Hub {
           case 'fix':
             o.fix(id);
             return sendJson(res, 200, { ok: true });
+          case 'retry':
+            o.retry(id);
+            return sendJson(res, 200, { ok: true });
           case 'stop':
             await o.stopAgent(id);
             return sendJson(res, 200, { ok: true });

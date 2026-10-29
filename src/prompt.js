@@ -59,3 +59,7 @@ export function fixPrompt(errors) {
     .join('\n');
   return `The app now shows these errors in the browser:\n${list}\n\nFind the cause and fix it, keeping the change the user asked for. Same rules as before: don't start servers, don't commit, and end with one or two sentences on what you fixed.`;
 }
+
+export function continuePrompt(request) {
+  return `Your previous run stopped before it finished. Pick up where you left off and finish this request:\n"${request.trim()}"\n\nSame rules as before: keep it focused, don't start servers, don't commit, and end with one or two sentences on what you changed.`;
+}
