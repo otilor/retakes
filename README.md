@@ -9,7 +9,7 @@ It's for one developer working on a Vite or Next.js app with Claude Code. Nothin
 In your app's folder:
 
 ```sh
-npx github:otilor/orchestrator
+npx retakes
 ```
 
 That starts your dev server behind a hub at **http://localhost:4300** and opens it. Your app looks the same, with a small dock at the bottom of the page.
