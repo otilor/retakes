@@ -1,6 +1,6 @@
 {
   "name": "retakes",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Ask Claude Code for changes to your running app, watch them land live, and flip between takes without losing your place.",
   "author": "Gabriel",
   "repository": {
