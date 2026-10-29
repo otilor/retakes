@@ -1,0 +1,13 @@
+.top { position: sticky; top: 0; display: flex; align-items: center; gap: 24px; padding: 16px 32px; background: #fff; border-bottom: 1px solid #e5e5e5; }
+.logo { color: #d9512f; font-size: 24px; }
+.search { display: flex; gap: 8px; }
+.search-input { width: 260px; padding: 10px 14px; border: 1px solid #ccc; border-radius: 999px; }
+.search-button { padding: 10px 16px; border: 0; border-radius: 999px; background: #d9512f; color: #fff; }
+main { padding: 24px 32px; }
+.filters { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; }
+.chip { padding: 6px 12px; border-radius: 999px; background: #f1f1f1; }
+.clear { border: 0; background: none; text-decoration: underline; cursor: pointer; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 24px; }
+.listing-img { aspect-ratio: 4 / 3; border-radius: 12px; }
+.listing h3 { margin: 10px 0 2px; font-size: 16px; }
+.listing p { margin: 0; color: #666; }

@@ -1,0 +1,443 @@
+// End-to-end test: a real Vite + React app, the real orch command, a real browser, and a
+// mock Claude Code that edits files the way the real one does. Run with `npm run test:e2e`.
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import os from 'node:os';
+import { spawn, execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { makeApp, ROOT } from './fixture.mjs';
+
+const require = createRequire(import.meta.url);
+const { chromium } = require('playwright');
+
+const BASE = process.env.ORCH_E2E_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'orch-e2e-'));
+const SHOTS = path.join(BASE, 'shots');
+fs.mkdirSync(SHOTS, { recursive: true });
+const HOME = fs.mkdtempSync(path.join(BASE, 'home-'));
+const MOCK_LOG = path.join(BASE, `mock-${Date.now()}.jsonl`);
+const PORT = 4400 + Math.floor(Math.random() * 300);
+const MOCK = path.join(ROOT, 'test', 'e2e', 'mock-agent.mjs');
+
+let passed = 0;
+const results = [];
+function ok(cond, msg) {
+  if (!cond) throw new Error(`Expected: ${msg}`);
+}
+async function step(name, fn) {
+  const t = Date.now();
+  try {
+    await fn();
+    passed++;
+    results.push(`  ✓ ${name} (${((Date.now() - t) / 1000).toFixed(1)}s)`);
+    console.log(results[results.length - 1]);
+  } catch (err) {
+    console.log(`  ✗ ${name}\n    ${err.stack || err.message}`);
+    try {
+      await page.screenshot({ path: path.join(SHOTS, `fail-${name.replace(/\W+/g, '-')}.png`) });
+    } catch {
+      /* no page */
+    }
+    console.log(`\norch output:\n${orchOut.slice(-4000)}`);
+    await shutdown();
+    process.exit(1);
+  }
+}
+async function until(fn, msg, timeout = 30000, every = 250) {
+  const start = Date.now();
+  let last;
+  while (Date.now() - start < timeout) {
+    try {
+      last = await fn();
+      if (last) return last;
+    } catch (err) {
+      last = err.message;
+    }
+    await new Promise((r) => setTimeout(r, every));
+  }
+  throw new Error(`Timed out waiting for: ${msg} (last: ${JSON.stringify(last)})`);
+}
+const mockCalls = () =>
+  fs.existsSync(MOCK_LOG) ? fs.readFileSync(MOCK_LOG, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
+
+// ---------- start ----------
+console.log(`Setting up a fixture app in ${BASE}`);
+const { dir: APP, git } = makeApp({ base: BASE, config: { agent: { command: `node ${MOCK}` } } });
+console.log(`App: ${APP}\nHub port: ${PORT}`);
+
+let orch = null;
+let orchOut = '';
+function startOrch() {
+  orch = spawn(process.execPath, [path.join(ROOT, 'bin', 'orch.js'), '--no-open', '--port', String(PORT)], {
+    cwd: APP,
+    env: { ...process.env, ORCH_HOME: HOME, ORCH_MOCK_LOG: MOCK_LOG, ORCH_MOCK_STEP_MS: '900' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  orch.stdout.on('data', (d) => (orchOut += d));
+  orch.stderr.on('data', (d) => (orchOut += d));
+  return until(() => /main: dev server ready/.test(orchOut), 'main dev server ready', 60000);
+}
+async function stopOrch() {
+  if (!orch || orch.exitCode !== null) return;
+  const done = new Promise((r) => orch.once('exit', r));
+  orch.kill('SIGINT');
+  await done;
+}
+
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+let page = await ctx.newPage();
+const pageErrors = [];
+page.on('pageerror', (e) => pageErrors.push(e.message));
+const URL0 = `http://localhost:${PORT}/`;
+
+async function shutdown() {
+  await browser.close().catch(() => {});
+  await stopOrch().catch(() => {});
+}
+
+const dock = () => page.locator('orch-dock .dock');
+const tile = (label) => page.locator(`orch-dock .tiles button[aria-label^="${label},"]`);
+const token = () => page.evaluate(() => window.__ORCH__.token);
+async function apiCall(p, body) {
+  return page.evaluate(
+    async ([p, body]) => {
+      const r = await fetch(`/__orch/api/${p}`, {
+        method: body === undefined ? 'GET' : 'POST',
+        headers: { 'x-orch-token': window.__ORCH__.token, 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      return { status: r.status, body: await r.json().catch(() => null) };
+    },
+    [p, body]
+  );
+}
+async function state() {
+  return (await apiCall('state')).body;
+}
+async function version(id) {
+  return (await state()).versions.find((v) => v.id === id);
+}
+async function waitReady(id, timeout = 180000) {
+  return until(
+    async () => {
+      const v = await version(id);
+      if (!v) return false;
+      if (v.phase === 'failed') throw new Error(`setup failed: ${v.phaseError}`);
+      return v.switchable && v.agent.status !== 'running' ? v : false;
+    },
+    `${id} ready`,
+    timeout,
+    500
+  );
+}
+async function toastText() {
+  return page.evaluate(() => {
+    const host = document.querySelector('orch-dock');
+    const el = host && host.shadowRoot.querySelector('.nt-root');
+    return el ? el.textContent : '';
+  });
+}
+
+try {
+  await step('orch starts the app and serves it on one port', async () => {
+    await startOrch();
+    await page.goto(URL0);
+    await dock().waitFor({ timeout: 10000 });
+    ok((await page.locator('.greeting').textContent()) === 'hello from env', 'the app renders');
+    ok((await page.evaluate(() => window.__ORCH__.v)) === 'main', 'main is served');
+  });
+
+  await step('the dock shows main and a disabled Keep', async () => {
+    await until(async () => (await tile('main').count()) === 1, 'main tile');
+    ok(await page.locator('orch-dock button[aria-label^="Keep"]').isDisabled(), 'Keep is disabled on main');
+    ok((await dock().getAttribute('data-edge')) === 'bottom', 'docked at the bottom');
+    await page.screenshot({ path: path.join(SHOTS, '01-main.png') });
+  });
+
+  await step('the API refuses requests without the token or from other hosts', async () => {
+    const res = await fetch(`http://127.0.0.1:${PORT}/__orch/api/takes`, { method: 'POST', body: '{"prompt":"x"}' });
+    ok(res.status === 403, `no token -> 403 (got ${res.status})`);
+    const t = await token();
+    const status2 = await new Promise((resolve, reject) => {
+      http
+        .get({ host: '127.0.0.1', port: PORT, path: '/__orch/api/state', headers: { 'x-orch-token': t, host: 'evil.example' } }, (r) => {
+          r.resume();
+          resolve(r.statusCode);
+        })
+        .on('error', reject);
+    });
+    ok(status2 === 403, `foreign host -> 403 (got ${status2})`);
+    const res4 = await fetch(`http://127.0.0.1:${PORT}/__orch/api/state`, { headers: { 'x-orch-token': t } });
+    ok(res4.status === 200, `right token on localhost -> 200 (got ${res4.status})`);
+    const res3 = await fetch(`http://127.0.0.1:${PORT}/__orch/events?t=nope`);
+    ok(res3.status === 403, 'events need the token');
+  });
+
+  await step('Prompt: point at the search button, describe the change, start a take', async () => {
+    await page.evaluate(() => scrollTo(0, 500));
+    await page.locator('orch-dock button[aria-label="Prompt a change"]').click();
+    await page.locator('orch-dock .pick-hint').waitFor();
+    await page.evaluate(() => scrollTo(0, 0));
+    const btn = page.locator('.search-button');
+    const box = await btn.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.locator('orch-dock .pick-box').waitFor();
+    ok((await page.locator('orch-dock .pick-tag').textContent()).includes('SearchBar'), 'the picker names the React component');
+    await page.screenshot({ path: path.join(SHOTS, '02-picking.png') });
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.locator('orch-dock .chip').waitFor();
+    ok((await page.locator('orch-dock .chip').textContent()).includes('SearchBar'), 'the composer shows the element');
+    await page.locator('orch-dock textarea').fill('make the search bar larger');
+    await page.screenshot({ path: path.join(SHOTS, '03-compose.png') });
+    await page.locator('orch-dock textarea').press('Enter');
+    await until(async () => (await toastText()).includes('agent-1 is on it'), 'the "on it" toast');
+    await until(async () => (await tile('agent-1').count()) === 1, 'agent-1 tile');
+  });
+
+  await step('the agent runs in its own worktree with Sonnet and the element context', async () => {
+    const call = await until(() => mockCalls()[0], 'the mock agent was called', 20000);
+    ok(call.args.includes('-p'), 'print mode');
+    ok(call.args.join(' ').includes('--model sonnet'), 'Sonnet by default');
+    ok(call.args.join(' ').includes('--permission-mode acceptEdits'), 'acceptEdits');
+    ok(call.args.includes('--session-id'), 'a fixed session id');
+    ok(!call.args.includes('--resume'), 'no resume on the first run');
+    ok(call.prompt.includes('make the search bar larger'), 'the request is in the prompt');
+    ok(call.prompt.includes('SearchBar'), 'the component is in the prompt');
+    ok(call.prompt.includes('search-button'), 'the selector is in the prompt');
+    ok(call.cwd.startsWith(HOME), `runs in the take folder (${call.cwd})`);
+    ok(fs.existsSync(path.join(call.cwd, '.env.local')), '.env.local was copied into the take');
+  });
+
+  let t1;
+  await step('the take installs, starts its dev server and finishes', async () => {
+    const mid = await until(async () => (await version('t1'))?.agent.status === 'running' && (await version('t1')), 'agent running');
+    ok(mid.label === 'agent-1', 'labelled agent-1');
+    await page.screenshot({ path: path.join(SHOTS, '04-building.png') });
+    t1 = await waitReady('t1');
+    ok(t1.agent.status === 'done', `agent done (${t1.agent.status}: ${t1.agent.error})`);
+    ok(t1.cost > 0, 'cost recorded');
+    ok(t1.lastResult && t1.lastResult.includes('Done'), 'result text kept');
+    const log = git('log', '--format=%s', 'orch/take-1', '-n', '1').trim();
+    ok(log === 'agent-1: make the search bar larger', `commit message (${log})`);
+    const files = git('show', '--name-only', '--format=', 'orch/take-1').trim();
+    ok(files === 'src/SearchBar.jsx', `only the edited file is committed (${files})`);
+    await until(async () => (await toastText()).includes('agent-1 is done'), 'done toast');
+  });
+
+  await step('switching to agent-1 keeps the URL and scroll, and shows its change', async () => {
+    await page.evaluate(() => scrollTo(0, 640));
+    await page.waitForTimeout(150);
+    await tile('agent-1').click();
+    await page.waitForLoadState('load');
+    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 't1', 'agent-1 served');
+    await until(async () => (await page.locator('.search-button').textContent()) === 'Search big 1', 'the change shows');
+    await until(async () => Math.abs((await page.evaluate(() => scrollY)) - 640) < 4, 'scroll restored', 5000);
+    ok((await page.locator('.greeting').textContent()) === 'hello from env', 'env file works in the take');
+    ok(page.url() === URL0, 'same URL');
+    ok((await page.locator('orch-dock .now').textContent()).includes('agent-1'), 'Now label says agent-1');
+    await until(async () => (await toastText()).includes('Viewing agent-1'), 'viewing toast');
+    await page.screenshot({ path: path.join(SHOTS, '05-viewing-take.png') });
+  });
+
+  await step('a follow-up resumes the same session and lands live without a reload', async () => {
+    await page.evaluate(() => (window.__noReload = 1));
+    await page.locator('orch-dock .now').click();
+    await page.locator('orch-dock .pop textarea').waitFor();
+    await page.screenshot({ path: path.join(SHOTS, '06-popover.png') });
+    await page.locator('orch-dock .pop textarea').fill('make the search button blue');
+    await page.locator('orch-dock .pop button', { hasText: 'Send' }).click();
+    await until(
+      async () => (await page.locator('.search-button').evaluate((e) => getComputedStyle(e).backgroundColor)) === 'rgb(43, 69, 224)',
+      'button turns blue live',
+      30000
+    );
+    ok((await page.evaluate(() => window.__noReload)) === 1, 'no page reload (hot update)');
+    const calls = mockCalls();
+    const second = calls[1];
+    ok(second.args.includes('--resume'), 'resumes');
+    ok(second.args[second.args.indexOf('--resume') + 1] === calls[0].args[calls[0].args.indexOf('--session-id') + 1], 'same session id');
+    await waitReady('t1');
+    const n = Number(git('rev-list', '--count', 'main..orch/take-1').trim());
+    ok(n === 2, `two commits on the take (${n})`);
+  });
+
+  await step('errors in the browser badge the take, and Fix sends them to its agent', async () => {
+    await apiCall('takes/t1/followup', { prompt: 'break the clear button' });
+    await waitReady('t1');
+    await page.reload();
+    await page.locator('.clear').click();
+    await until(async () => (await version('t1')).errors.length > 0, 'error reported');
+    const v = await version('t1');
+    ok(/undefined|map/i.test(v.errors[0].message), `error message (${v.errors[0].message})`);
+    await until(async () => (await tile('agent-1').getAttribute('aria-label')).includes('error'), 'tile shows the error');
+    await until(async () => (await toastText()).includes('agent-1 hit an error'), 'error toast');
+    await page.screenshot({ path: path.join(SHOTS, '07-error.png') });
+    const r = await apiCall('takes/t1/fix', {});
+    ok(r.status === 200, 'fix accepted');
+    const fixCall = await until(() => mockCalls().find((c) => c.prompt.includes('errors in the browser')), 'fix prompt sent');
+    ok(fixCall.prompt.includes(v.errors[0].message.slice(0, 30)), 'the error is in the fix prompt');
+    const after = await waitReady('t1');
+    ok(after.errors.length === 0, 'errors cleared after the fix');
+    await page.reload();
+    await page.locator('.clear').click();
+    await page.waitForTimeout(800);
+    ok((await version('t1')).errors.length === 0, 'no new errors after the fix');
+    ok((await page.locator('.chip').count()) === 0, 'clearing works now');
+  });
+
+  await step('Try another starts a second take of the same prompt', async () => {
+    const r = await apiCall('takes/t1/another', {});
+    ok(r.status === 200 && r.body.take.id === 't2', `agent-2 created (${JSON.stringify(r)})`);
+    ok(r.body.take.attempt === 2, 'it is take 2');
+    const t2 = await waitReady('t2');
+    ok(t2.prompt === 'make the search bar larger', 'same prompt');
+    const call = mockCalls().find((c) => c.prompt.includes('This is take 2'));
+    ok(call, 'the prompt asks for a different take');
+  });
+
+  await step('Compare shows two versions side by side and scrolls them together', async () => {
+    await page.locator('orch-dock button[aria-label="Compare side by side"]').click();
+    await page.locator('orch-dock .cmp').waitFor();
+    const frames = page.locator('orch-dock .cmp iframe');
+    await until(async () => (await frames.count()) === 2, 'two panes');
+    const left = page.frameLocator('orch-dock .cmp .pane:nth-child(1) iframe');
+    const right = page.frameLocator('orch-dock .cmp .pane:nth-child(2) iframe');
+    await until(async () => (await left.locator('.search-button').textContent()) === 'Search big 1', 'left is agent-1', 20000);
+    await until(async () => (await right.locator('.search-button').textContent()) === 'Search', 'right is main', 20000);
+    await page.waitForTimeout(500);
+    const panes = page.frames().filter((f) => f.parentFrame() === page.mainFrame());
+    ok(panes.length === 2, `two pane frames (${panes.length})`);
+    await panes[0].evaluate(() => scrollTo(0, 700));
+    await until(async () => Math.abs((await panes[1].evaluate(() => scrollY)) - 700) < 4, 'the other pane follows', 5000);
+    await page.screenshot({ path: path.join(SHOTS, '08-compare.png') });
+    await page.keyboard.press('Escape');
+    await until(async () => (await page.locator('orch-dock .cmp').count()) === 0, 'compare closes');
+  });
+
+  await step('Keep merges a take into your branch and removes it', async () => {
+    await tile('agent-2').click();
+    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 't2', 'agent-2 served');
+    await page.locator('orch-dock button[aria-label="Keep agent-2"]').click();
+    await page.screenshot({ path: path.join(SHOTS, '09-keep.png') });
+    await page.locator('orch-dock .pop button', { hasText: 'Keep agent-2' }).click();
+    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 'main', 'back on main', 20000);
+    await until(async () => (await page.locator('.search-button').textContent()) === 'Search big 2', 'main has the change');
+    const subject = git('log', '-1', '--format=%s').trim();
+    ok(subject.startsWith('Keep agent-2'), `merge commit (${subject})`);
+    ok(!git('branch', '--list', 'orch/take-2').trim(), 'branch removed');
+    ok(!(await version('t2')), 'take removed');
+    ok(!fs.existsSync(path.join(HOME, 'projects')) || !fs.readdirSync(path.join(HOME, 'projects')).some((p) => fs.existsSync(path.join(HOME, 'projects', p, 'takes', 't2'))), 'folder removed');
+  });
+
+  await step('Discard removes a take, its branch and its folder', async () => {
+    await tile('agent-1').click();
+    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 't1', 'agent-1 served');
+    await page.locator('orch-dock .now').click();
+    const discard = page.locator('orch-dock .pop button', { hasText: 'Discard' });
+    await discard.click();
+    await page.locator('orch-dock .pop button', { hasText: 'Click again to discard' }).click();
+    await until(async () => (await page.evaluate(() => window.__ORCH__ && window.__ORCH__.v)) === 'main', 'back on main', 20000);
+    ok(!git('branch', '--list', 'orch/take-1').trim(), 'branch removed');
+    ok(!(await version('t1')), 'take removed');
+    ok(!git('worktree', 'list').includes('takes/t1'), 'worktree removed');
+  });
+
+  await step('the dock docks to the left as a column and remembers it', async () => {
+    const handle = page.locator('orch-dock .handle');
+    const hb = await handle.boundingBox();
+    await page.mouse.move(hb.x + 20, hb.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(400, 400, { steps: 6 });
+    await page.mouse.move(30, 380, { steps: 6 });
+    await page.mouse.up();
+    await until(async () => (await dock().getAttribute('data-edge')) === 'left', 'docked left');
+    ok((await dock().getAttribute('aria-orientation')) === 'vertical', 'vertical');
+    await page.waitForTimeout(400);
+    const b = await dock().boundingBox();
+    ok(Math.abs(b.x - 12) < 2, `12px from the edge (${b.x})`);
+    await page.screenshot({ path: path.join(SHOTS, '10-left.png') });
+    await page.reload();
+    await dock().waitFor();
+    ok((await dock().getAttribute('data-edge')) === 'left', 'remembered after reload');
+    // Put it back.
+    const hb2 = await page.locator('orch-dock .handle').boundingBox();
+    await page.mouse.move(hb2.x + 20, hb2.y + 20);
+    await page.mouse.down();
+    await page.mouse.move(600, 500, { steps: 6 });
+    await page.mouse.move(640, 790, { steps: 6 });
+    await page.mouse.up();
+    await until(async () => (await dock().getAttribute('data-edge')) === 'bottom', 'back at the bottom');
+  });
+
+  await step('. collapses and opens the dock; clicking the handle does too', async () => {
+    await page.locator('body').click({ position: { x: 600, y: 120 } });
+    await page.keyboard.press('.');
+    await until(async () => (await dock().getAttribute('class')).includes('closed'), 'collapsed');
+    await page.screenshot({ path: path.join(SHOTS, '11-collapsed.png') });
+    await page.keyboard.press('.');
+    await until(async () => !(await dock().getAttribute('class')).includes('closed'), 'open');
+    await page.locator('orch-dock .handle').click();
+    await until(async () => (await dock().getAttribute('class')).includes('closed'), 'collapsed by click');
+    await page.locator('orch-dock .handle').click();
+    await until(async () => !(await dock().getAttribute('class')).includes('closed'), 'open by click');
+    await page.locator('.search-input').fill('a.b');
+    ok((await page.locator('.search-input').inputValue()) === 'a.b', 'typing . in the app does not toggle the dock');
+    ok(!(await dock().getAttribute('class')).includes('closed'), 'still open');
+  });
+
+  await step('a failing agent is reported and its take can be discarded', async () => {
+    const r = await apiCall('takes', { prompt: 'fail on purpose' });
+    ok(r.status === 200, 'created');
+    const id = r.body.take.id;
+    await until(async () => (await version(id)).agent.status === 'failed', 'agent failed', 60000);
+    const v = await version(id);
+    ok(v.agent.error.includes('Mock failure'), `error kept (${v.agent.error})`);
+    await until(async () => (await toastText()).includes('hit a problem'), 'failure toast');
+    await waitReady(id);
+    await apiCall(`takes/${id}/discard`, {});
+    await until(async () => !(await version(id)), 'removed');
+  });
+
+  await step('Stop ends a running agent', async () => {
+    const r = await apiCall('takes', { prompt: 'slow change please' });
+    const id = r.body.take.id;
+    await until(async () => (await version(id)).agent.status === 'running', 'running');
+    await page.waitForTimeout(800);
+    await apiCall(`takes/${id}/stop`, {});
+    await until(async () => (await version(id)).agent.status === 'stopped', 'stopped', 15000);
+    await waitReady(id);
+  });
+
+  await step('takes survive a restart of orch', async () => {
+    const before = (await state()).versions.filter((v) => v.kind === 'take').map((v) => v.id);
+    ok(before.length === 1, 'one take left');
+    await stopOrch();
+    ok(/Stopping dev servers/.test(orchOut), 'clean shutdown');
+    orchOut = '';
+    await startOrch();
+    await page.reload();
+    await dock().waitFor();
+    const v = await waitReady(before[0], 60000);
+    ok(v.agent.status === 'stopped', 'stopped status kept');
+    ok(!/installing dependencies/.test(orchOut), 'no reinstall on restart');
+  });
+
+  await step('orch clean removes every take', async () => {
+    await stopOrch();
+    const out = execFileSync(process.execPath, [path.join(ROOT, 'bin', 'orch.js'), 'clean', '--yes'], {
+      cwd: APP,
+      env: { ...process.env, ORCH_HOME: HOME },
+    }).toString();
+    ok(/Cleaned/.test(out), out);
+    ok(!git('branch', '--list', 'orch/*').trim(), 'no orch branches');
+    ok(git('worktree', 'list').trim().split('\n').length === 1, 'only the main worktree');
+    ok(git('status', '--porcelain').trim() === '', 'your checkout is clean');
+  });
+
+  const unexpected = pageErrors.filter((m) => !/undefined|map/i.test(m));
+  ok(unexpected.length === 0, `no unexpected page errors: ${unexpected.join(' | ')}`);
+  console.log(`\nAll ${passed} steps passed. Screenshots in ${SHOTS}`);
+} finally {
+  await shutdown();
+}

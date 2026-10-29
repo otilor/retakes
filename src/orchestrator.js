@@ -1,0 +1,597 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import { DevServer } from './devserver.js';
+import { AgentRun } from './agent.js';
+import { UserError, spawnGroup, stopTree, Tail, stripAnsi } from './proc.js';
+import { installCommand, filesToCopy } from './project.js';
+import * as G from './git.js';
+import { takePrompt, refinePrompt, fixPrompt } from './prompt.js';
+
+const MAX_ERRORS = 20;
+
+/**
+ * Owns every version of the app: main (your own checkout) and the takes, each a
+ * git worktree with its own dev server and its own Claude Code session.
+ */
+export class Orchestrator extends EventEmitter {
+  constructor(project, { log = () => {} } = {}) {
+    super();
+    this.p = project;
+    this.log = log;
+    this.stateFile = path.join(project.stateDir, 'state.json');
+    this.logsDir = path.join(project.stateDir, 'logs');
+    fs.mkdirSync(this.logsDir, { recursive: true });
+    fs.mkdirSync(project.takesDir, { recursive: true });
+    this.state = this.loadState();
+    this.takes = new Map();
+    this.branch = null;
+    this.main = {
+      id: 'main',
+      errors: new Map(),
+      server: new DevServer({
+        project,
+        appDir: project.appDir,
+        stopAt: project.gitRoot,
+        logFile: path.join(this.logsDir, 'main.log'),
+      }),
+    };
+    this.main.server.on('change', (info) => this.onServerChange('main', info));
+    this.emitTimer = null;
+    this.closed = false;
+  }
+
+  // ---------- state ----------
+
+  loadState() {
+    try {
+      const s = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
+      if (s && Array.isArray(s.takes) && Number.isInteger(s.next)) return s;
+    } catch {
+      /* first run */
+    }
+    return { v: 1, next: 1, takes: [] };
+  }
+
+  save() {
+    this.state.takes = [...this.takes.values()].map((t) => t.meta);
+    const tmp = `${this.stateFile}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(this.state, null, 2));
+    fs.renameSync(tmp, this.stateFile);
+  }
+
+  changed() {
+    if (this.emitTimer || this.closed) return;
+    this.emitTimer = setTimeout(() => {
+      this.emitTimer = null;
+      this.emit('state', this.snapshot());
+    }, 40);
+  }
+
+  notice(kind, text, extra = {}) {
+    this.emit('notice', { kind, text, at: Date.now(), ...extra });
+  }
+
+  snapshot() {
+    const errs = (m) => [...m.values()].sort((a, b) => b.at - a.at);
+    const versions = [
+      {
+        id: 'main',
+        kind: 'main',
+        label: 'main',
+        branch: this.branch,
+        server: this.main.server.info(),
+        errors: errs(this.main.errors),
+        switchable: this.main.server.status === 'ready',
+      },
+    ];
+    for (const t of this.takes.values()) {
+      const m = t.meta;
+      versions.push({
+        id: m.id,
+        kind: 'take',
+        n: m.n,
+        label: `agent-${m.n}`,
+        prompt: m.prompt,
+        element: m.element ? { selector: m.element.selector, component: m.element.component, text: m.element.text } : null,
+        branch: m.branch,
+        takeOf: m.takeOf || null,
+        attempt: m.attempt || 1,
+        phase: t.phase,
+        phaseError: t.phaseError,
+        server: t.server ? t.server.info() : { status: 'stopped', port: null, error: null },
+        agent: { ...t.agent },
+        cost: m.cost || 0,
+        runs: m.runs.length,
+        lastResult: lastResult(m),
+        errors: errs(t.errors),
+        switchable: !!t.server && t.server.status === 'ready',
+        createdAt: m.createdAt,
+      });
+    }
+    return { project: { name: this.p.name, branch: this.branch }, versions };
+  }
+
+  version(id) {
+    if (id === 'main') return this.main;
+    return this.takes.get(id) || null;
+  }
+
+  /** Where the proxy should send requests for a version, or null if it isn't serving. */
+  target(id) {
+    const v = this.version(id);
+    const s = v && v.server;
+    if (!s || s.status !== 'ready') return null;
+    return { host: s.host, port: s.port };
+  }
+
+  logFile(id) {
+    return path.join(this.logsDir, `${id}.log`);
+  }
+
+  // ---------- lifecycle ----------
+
+  async start() {
+    this.branch = await G.currentBranch(this.p.gitRoot).catch(() => null);
+    this.branchTimer = setInterval(async () => {
+      const b = await G.currentBranch(this.p.gitRoot).catch(() => this.branch);
+      if (b !== this.branch) {
+        this.branch = b;
+        this.changed();
+      }
+    }, 5000);
+    this.branchTimer.unref();
+    const main = this.main.server.start();
+    for (const meta of this.state.takes) this.restoreTake(meta);
+    this.save();
+    await main;
+  }
+
+  restoreTake(meta) {
+    if (!fs.existsSync(meta.appDir)) {
+      this.log(`agent-${meta.n}: its folder is gone, so it was removed`);
+      return;
+    }
+    const t = this.newRuntime(meta);
+    const last = meta.runs[meta.runs.length - 1];
+    if (last && last.ok === undefined) {
+      last.ok = false;
+      last.error = 'Orchestrator was closed while the agent was working.';
+    }
+    t.agent = last
+      ? { status: last.ok ? 'done' : last.stopped ? 'stopped' : 'failed', step: null, error: last.ok ? null : last.error || null, startedAt: null }
+      : { status: 'idle', step: null, error: null, startedAt: null };
+    this.takes.set(meta.id, t);
+    const lockRel = path.relative(this.p.gitRoot, this.p.pm.root);
+    this.bootTake(t, { install: !fs.existsSync(path.join(meta.dir, lockRel, 'node_modules')) });
+  }
+
+  async shutdown() {
+    this.closed = true;
+    clearInterval(this.branchTimer);
+    clearTimeout(this.emitTimer);
+    const jobs = [this.main.server.stop()];
+    for (const t of this.takes.values()) {
+      if (t.run) jobs.push(t.run.stop());
+      if (t.install) jobs.push(t.install.stop());
+      if (t.server) jobs.push(t.server.stop());
+    }
+    await Promise.allSettled(jobs);
+    try {
+      this.save();
+    } catch {
+      /* best effort */
+    }
+  }
+
+  onServerChange(id, info) {
+    this.changed();
+    const name = id === 'main' ? 'Your dev server' : `agent-${this.takes.get(id)?.meta.n}'s dev server`;
+    if (info.status === 'failed') {
+      this.log(`${id === 'main' ? 'main' : name}: failed to start`, info.error);
+      this.notice('error', `${name} didn't start. See the terminal for details.`, { version: id });
+    } else if (info.status === 'crashed') {
+      this.log(`${name} stopped`, info.error);
+      this.notice('error', `${name} stopped.`, { version: id });
+    } else if (info.status === 'ready') {
+      this.log(`${id === 'main' ? 'main' : `agent-${this.takes.get(id)?.meta.n}`}: dev server ready on port ${info.port}`);
+    }
+  }
+
+  // ---------- takes ----------
+
+  newRuntime(meta) {
+    return {
+      meta,
+      phase: 'setup',
+      phaseError: null,
+      server: null,
+      install: null,
+      run: null,
+      agent: { status: 'idle', step: null, error: null, startedAt: null },
+      errors: new Map(),
+    };
+  }
+
+  async createTake({ prompt, element, from }) {
+    let attempt = 1;
+    let takeOf = null;
+    if (from) {
+      const src = this.takes.get(from);
+      if (!src) throw new UserError("That take doesn't exist anymore.");
+      prompt = src.meta.prompt;
+      element = src.meta.element;
+      takeOf = src.meta.takeOf || src.meta.id;
+      attempt = 1 + [...this.takes.values()].filter((t) => (t.meta.takeOf || t.meta.id) === takeOf).length;
+    }
+    if (typeof prompt !== 'string' || !prompt.trim()) throw new UserError('Describe the change you want.');
+    if (prompt.length > 8000) throw new UserError('That prompt is too long. Keep it under 8,000 characters.');
+
+    const n = this.state.next++;
+    const id = `t${n}`;
+    let branch = `orch/take-${n}`;
+    for (let i = 2; await G.branchExists(this.p.gitRoot, branch); i++) branch = `orch/take-${n}-${i}`;
+    const dir = path.join(this.p.takesDir, id);
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    const meta = {
+      id,
+      n,
+      prompt: prompt.trim(),
+      element: element || null,
+      takeOf,
+      attempt,
+      branch,
+      dir,
+      appDir: path.join(dir, this.p.rel),
+      base: this.branch,
+      baseSha: await G.headSha(this.p.gitRoot),
+      sessionId: crypto.randomUUID(),
+      hasSession: false,
+      copied: [],
+      runs: [],
+      cost: 0,
+      createdAt: Date.now(),
+    };
+    const t = this.newRuntime(meta);
+    this.takes.set(id, t);
+    this.save();
+    this.changed();
+    this.log(`agent-${n}: started "${clip(meta.prompt, 70)}"`);
+
+    try {
+      await G.addWorktree(this.p.gitRoot, dir, branch, meta.baseSha);
+    } catch (err) {
+      this.takes.delete(id);
+      this.save();
+      this.changed();
+      throw new UserError(`Couldn't create a worktree for agent-${n}: ${err.message}`);
+    }
+    meta.copied = this.copyFiles(meta);
+    this.save();
+
+    this.runAgent(t, 'start', meta.prompt, takePrompt({ request: meta.prompt, element: meta.element, take: attempt }));
+    this.bootTake(t, { install: true });
+    return this.snapshot().versions.find((v) => v.id === id);
+  }
+
+  copyFiles(meta) {
+    const copied = [];
+    for (const rel of filesToCopy(this.p.appDir, this.p.config)) {
+      const src = path.join(this.p.appDir, rel);
+      const dst = path.join(meta.appDir, rel);
+      if (fs.existsSync(dst)) continue;
+      try {
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
+        fs.copyFileSync(src, dst);
+        copied.push(path.join(this.p.rel, rel));
+      } catch (err) {
+        this.log(`agent-${meta.n}: couldn't copy ${rel}: ${err.message}`);
+      }
+    }
+    return copied;
+  }
+
+  async bootTake(t, { install }) {
+    const m = t.meta;
+    try {
+      if (install) {
+        t.phase = 'installing';
+        this.changed();
+        await this.installDeps(t);
+        if (!this.takes.has(m.id)) return;
+      }
+      t.phase = 'starting';
+      this.changed();
+      t.server = new DevServer({ project: this.p, appDir: m.appDir, stopAt: m.dir, logFile: this.logFile(m.id) });
+      t.server.on('change', (info) => {
+        if (info.status === 'ready') t.phase = 'live';
+        else if (info.status === 'failed' || info.status === 'crashed') {
+          t.phase = 'failed';
+          t.phaseError = info.error;
+        }
+        this.onServerChange(m.id, info);
+      });
+      await t.server.start();
+    } catch (err) {
+      if (!this.takes.has(m.id)) return;
+      t.phase = 'failed';
+      t.phaseError = err.message;
+      this.log(`agent-${m.n}: setup failed`, err.message);
+      this.notice('error', `agent-${m.n} couldn't be set up: ${clip(firstLine(err.message), 90)}`, { version: m.id });
+      this.changed();
+    }
+  }
+
+  installDeps(t) {
+    const m = t.meta;
+    const lockRel = path.relative(this.p.gitRoot, this.p.pm.root);
+    let cmd;
+    let args;
+    let shell = false;
+    let cwd;
+    if (this.p.config.setup) {
+      cmd = this.p.config.setup;
+      args = [];
+      shell = true;
+      cwd = m.appDir;
+    } else {
+      [cmd, args] = installCommand(this.p.pm);
+      shell = process.platform === 'win32';
+      cwd = path.join(m.dir, lockRel);
+    }
+    this.log(`agent-${m.n}: installing dependencies (${shell && !args.length ? cmd : `${cmd} ${args.join(' ')}`})`);
+    const log = fs.createWriteStream(this.logFile(m.id), { flags: 'a' });
+    log.write(`\n--- setup: ${cmd} ${args.join(' ')} in ${cwd}\n`);
+    const tail = new Tail(40);
+    return new Promise((resolve, reject) => {
+      const child = spawnGroup(cmd, args, { cwd, env: { ...process.env, NO_COLOR: '1' }, shell });
+      let stopped = false;
+      t.install = {
+        stop: () => {
+          stopped = true;
+          return stopTree(child);
+        },
+      };
+      const onData = (d) => {
+        log.write(d);
+        tail.push(stripAnsi(d));
+      };
+      child.stdout.on('data', onData);
+      child.stderr.on('data', onData);
+      child.on('error', (err) => onData(`${err.message}\n`));
+      child.on('close', (code) => {
+        log.end();
+        t.install = null;
+        if (stopped) return reject(new Error('Setup was stopped.'));
+        if (code === 0) resolve();
+        else reject(new Error(`\`${cmd}${args.length ? ` ${args.join(' ')}` : ''}\` failed:\n${tail.text(15)}`));
+      });
+    });
+  }
+
+  runAgent(t, kind, text, promptText) {
+    const m = t.meta;
+    if (t.run) throw new UserError(`agent-${m.n} is still working. Wait for it, or stop it first.`);
+    const run = new AgentRun({
+      cwd: m.appDir,
+      prompt: promptText,
+      sessionId: m.sessionId,
+      resume: m.hasSession,
+      config: {
+        ...(this.p.config.agent || {}),
+        args: [...(this.p.rel ? ['--add-dir', m.dir] : []), ...((this.p.config.agent && this.p.config.agent.args) || [])],
+      },
+      logFile: this.logFile(m.id),
+    });
+    const entry = { kind, text, at: Date.now() };
+    m.runs.push(entry);
+    t.run = run;
+    t.agent = { status: 'running', step: kind === 'fix' ? 'Looking at the errors' : 'Reading the code', error: null, startedAt: Date.now() };
+    t.errors.clear();
+    this.save();
+    this.changed();
+    run.on('step', (s) => {
+      t.agent.step = s;
+      this.changed();
+    });
+    run.start();
+    run.done().then(async (res) => {
+      t.run = null;
+      if (run.sessionSeen) {
+        m.hasSession = true;
+        if (run.sessionSeen !== m.sessionId) m.sessionId = run.sessionSeen;
+      }
+      entry.ok = res.ok;
+      entry.cost = res.cost || 0;
+      m.cost = Math.round(((m.cost || 0) + entry.cost) * 10000) / 10000;
+      if (!this.takes.has(m.id)) return;
+      if (res.ok) {
+        entry.result = clip(res.result || '', 600);
+        let sha = null;
+        let commitError = null;
+        try {
+          sha = await G.commitAll(m.dir, commitMessage(m, kind, text), m.copied);
+        } catch (err) {
+          commitError = err.message;
+          this.log(`agent-${m.n}: couldn't commit its work`, err.message);
+        }
+        entry.commit = sha;
+        t.agent = { status: 'done', step: null, error: null, startedAt: null };
+        t.errors.clear();
+        const cost = entry.cost ? ` ($${entry.cost.toFixed(2)})` : '';
+        this.log(`agent-${m.n}: done${cost}${sha || commitError ? '' : ', no changes'}`);
+        if (commitError) {
+          this.notice('error', `agent-${m.n} finished, but its work couldn't be committed. See the terminal.`, { version: m.id });
+        } else if (sha) {
+          this.notice('success', `agent-${m.n} is done`, { version: m.id, action: 'view' });
+        } else {
+          this.notice('warning', `agent-${m.n} finished without changing anything`, { version: m.id });
+        }
+      } else {
+        entry.error = res.error;
+        entry.stopped = !!res.stopped;
+        t.agent = { status: res.stopped ? 'stopped' : 'failed', step: null, error: res.error, startedAt: null };
+        // Keep whatever it got done, so a follow-up can build on it.
+        try {
+          entry.commit = await G.commitAll(m.dir, `${commitMessage(m, kind, text)} (unfinished)`, m.copied);
+        } catch {
+          /* nothing to keep */
+        }
+        if (res.stopped) {
+          this.log(`agent-${m.n}: stopped`);
+          this.notice('info', `Stopped agent-${m.n}`, { version: m.id });
+        } else {
+          this.log(`agent-${m.n}: failed`, res.error);
+          this.notice('error', `agent-${m.n} hit a problem: ${clip(firstLine(res.error), 90)}`, { version: m.id });
+        }
+      }
+      this.save();
+      this.changed();
+    });
+  }
+
+  takeOrThrow(id) {
+    const t = this.takes.get(id);
+    if (!t) throw new UserError("That take doesn't exist anymore.");
+    return t;
+  }
+
+  followUp(id, text, element = null) {
+    const t = this.takeOrThrow(id);
+    if (typeof text !== 'string' || !text.trim()) throw new UserError('Describe the change you want.');
+    if (text.length > 8000) throw new UserError('That prompt is too long. Keep it under 8,000 characters.');
+    const prompt = t.meta.hasSession
+      ? refinePrompt(text, element)
+      : takePrompt({ request: `${t.meta.prompt}\n\nAlso: ${text}`, element: element || t.meta.element });
+    this.runAgent(t, 'refine', text.trim(), prompt);
+  }
+
+  fix(id) {
+    const t = this.takeOrThrow(id);
+    const errors = [...t.errors.values()];
+    if (!errors.length) throw new UserError(`agent-${t.meta.n} has no errors to fix.`);
+    const prompt = t.meta.hasSession ? fixPrompt(errors) : `${takePrompt({ request: t.meta.prompt, element: t.meta.element })}\n\n${fixPrompt(errors)}`;
+    this.runAgent(t, 'fix', `Fix ${errors.length === 1 ? 'an error' : `${errors.length} errors`}`, prompt);
+  }
+
+  async stopAgent(id) {
+    const t = this.takeOrThrow(id);
+    if (t.run) await t.run.stop();
+  }
+
+  async keep(id) {
+    const t = this.takeOrThrow(id);
+    const m = t.meta;
+    if (t.run) throw new UserError(`agent-${m.n} is still working. Wait for it, or stop it first.`);
+    await G.commitAll(m.dir, `agent-${m.n}: manual changes`, m.copied).catch(() => null);
+    const ahead = await G.commitsAhead(this.p.gitRoot, 'HEAD', m.branch);
+    if (!ahead) throw new UserError(`agent-${m.n} has nothing that isn't already in ${this.branch || 'your branch'}.`);
+    const into = (await G.currentBranch(this.p.gitRoot)) || 'your checkout';
+    try {
+      await G.mergeBranch(this.p.gitRoot, m.branch, `Keep agent-${m.n}: ${clip(m.prompt, 60)}`);
+    } catch (err) {
+      throw new UserError(`Couldn't merge agent-${m.n} into ${into}. Nothing was changed.\n${clip(err.message, 600)}`);
+    }
+    this.log(`agent-${m.n}: kept, merged into ${into}`);
+    await this.discard(id, { quiet: true });
+    this.branch = into;
+    this.notice('success', `Kept agent-${m.n}. It's merged into ${into}.`, { version: 'main' });
+    return { into };
+  }
+
+  async discard(id, { quiet = false } = {}) {
+    const t = this.takeOrThrow(id);
+    const m = t.meta;
+    this.takes.delete(id);
+    this.save();
+    this.changed();
+    this.emit('removed', id);
+    if (t.run) await t.run.stop();
+    if (t.install) await t.install.stop().catch(() => {});
+    if (t.server) await t.server.stop();
+    try {
+      await G.removeWorktree(this.p.gitRoot, m.dir, m.branch);
+    } catch (err) {
+      this.log(`agent-${m.n}: couldn't fully remove its worktree`, err.message);
+    }
+    if (!quiet) {
+      this.log(`agent-${m.n}: discarded`);
+      this.notice('info', `Discarded agent-${m.n}`);
+    }
+  }
+
+  // ---------- errors from the browser ----------
+
+  reportError(id, err) {
+    const v = this.version(id);
+    if (!v || !err || typeof err.message !== 'string') return;
+    const t = id === 'main' ? null : v;
+    // Half-finished edits often break the page for a moment. Only count errors once the agent is done.
+    if (t && t.run) return;
+    const message = clip(err.message, 500);
+    if (!message) return;
+    const existing = v.errors.get(message);
+    if (existing) {
+      existing.count += 1;
+      existing.at = Date.now();
+    } else {
+      if (v.errors.size >= MAX_ERRORS) {
+        const oldest = [...v.errors.values()].sort((a, b) => a.at - b.at)[0];
+        v.errors.delete(oldest.message);
+      }
+      v.errors.set(message, { message, stack: clip(err.stack || '', 2000), kind: err.kind === 'build' ? 'build' : 'runtime', count: 1, at: Date.now() });
+      const name = id === 'main' ? 'main' : `agent-${t.meta.n}`;
+      this.log(`${name}: error in the browser: ${clip(message, 120)}`);
+      if (v.errors.size === 1) {
+        this.notice('warning', `${name} hit an error: ${clip(firstLine(message), 70)}`, {
+          version: id,
+          action: id === 'main' ? null : 'fix',
+        });
+      }
+    }
+    this.changed();
+  }
+
+  clearErrors(id) {
+    const v = this.version(id);
+    if (!v) return;
+    v.errors.clear();
+    this.changed();
+  }
+
+  readLog(id, maxBytes = 200_000) {
+    if (id !== 'main' && !this.takes.has(id)) throw new UserError("That take doesn't exist anymore.");
+    const file = this.logFile(id);
+    if (!fs.existsSync(file)) return '';
+    const size = fs.statSync(file).size;
+    const fd = fs.openSync(file, 'r');
+    try {
+      const len = Math.min(size, maxBytes);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, size - len);
+      return buf.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+}
+
+function lastResult(m) {
+  for (let i = m.runs.length - 1; i >= 0; i--) if (m.runs[i].result) return m.runs[i].result;
+  return null;
+}
+
+function commitMessage(m, kind, text) {
+  const head = kind === 'start' ? m.prompt : text;
+  return `agent-${m.n}: ${clip(firstLine(head), 72)}\n\nMade with Orchestrator and Claude Code.`;
+}
+
+function firstLine(s) {
+  return String(s || '').split('\n').find((l) => l.trim()) || '';
+}
+
+function clip(s, n) {
+  s = String(s || '').trim();
+  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
