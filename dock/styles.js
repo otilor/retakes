@@ -204,6 +204,12 @@ button { font: inherit; color: inherit; }
   box-shadow: inset 0 0 0 1px var(--field-line); color: var(--fg); outline: none; font: 500 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 .rec-name:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.rec.watch { gap: 10px; padding-left: 10px; }
+.rec.watch .rec-text { margin: 0; }
+.rec.watch .rec-text small { max-width: 420px; }
+.rec.watch .rec-text small.bad { color: var(--fail); white-space: normal; }
+.watch-box { border-color: var(--accent); background: rgba(140,156,255,.14); box-shadow: 0 0 0 4px rgba(140,156,255,.22); transition: all .25s ease-out; }
+.watch-box.bad { border-color: #ff4d4d; background: rgba(255,77,77,.12); box-shadow: 0 0 0 4px rgba(255,77,77,.2); }
 @media (max-width: 640px) { .rec { flex-wrap: wrap; justify-content: flex-end; } .rec-text small { max-width: 160px; } }
 
 /* ---------- picking ---------- */

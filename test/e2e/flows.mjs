@@ -175,6 +175,22 @@ try {
     ok(r.status === 'pass', `passes on main (${r.error})`);
   });
 
+  await step('Watch plays the flow on the page, step by step', async () => {
+    await page.keyboard.press('f');
+    await page.locator('orch-dock .flow-row').click();
+    await page.locator('orch-dock .pop button', { hasText: 'Watch' }).click();
+    const bar = page.locator('orch-dock .rec.watch');
+    await bar.waitFor({ timeout: 15000 });
+    await until(async () => /step 2 of 4/.test(await bar.textContent()), 'shows its progress', 15000, 50);
+    await page.screenshot({ path: path.join(SHOTS, '02-watching.png') });
+    await until(async () => /passed/.test(await bar.textContent()), 'watch finishes', 30000);
+    ok((await page.locator('.search-input').inputValue()) === 'Lisbon', 'it typed into the page');
+    ok((await page.locator('.none').count()) === 1, 'it clicked Clear filters');
+    ok((await dock().count()) === 0, 'the dock steps aside while watching');
+    await bar.getByRole('button', { name: 'Close' }).click();
+    await dock().waitFor();
+  });
+
   await step("a take that keeps the flow working passes it, even with the button's text changed", async () => {
     await apiCall('takes', { prompt: 'make the search bar larger' });
     await waitReady('t1');
@@ -206,8 +222,20 @@ try {
     await page.locator('orch-dock .flow.fail').waitFor();
     await page.locator('orch-dock .flow-row').click();
     await page.locator('orch-dock .ferr').first().waitFor();
-    await page.screenshot({ path: path.join(SHOTS, '02-broken.png') });
+    await page.screenshot({ path: path.join(SHOTS, '03-broken.png') });
     await page.keyboard.press('Escape');
+  });
+
+  await step('Watch on the broken take stops at the failing step', async () => {
+    await page.keyboard.press('f');
+    await page.locator('orch-dock .flow-row').click();
+    await page.locator('orch-dock .pop button', { hasText: 'Watch' }).click();
+    const bar = page.locator('orch-dock .rec.watch');
+    await bar.waitFor({ timeout: 15000 });
+    await until(async () => /failed at step 4/.test(await bar.textContent()), 'watch shows the failure', 30000);
+    await page.screenshot({ path: path.join(SHOTS, '04-watch-failed.png') });
+    await bar.getByRole('button', { name: 'Close' }).click();
+    await dock().waitFor();
   });
 
   await step('Fix sends the broken flow to the agent, and the flow passes again', async () => {

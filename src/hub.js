@@ -251,6 +251,10 @@ export class Hub {
           res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
           return res.end(o.readLog(parts[1]) || 'Nothing logged yet.');
         }
+        if (parts[0] === 'flows' && parts[1]) {
+          const flow = o.flows.find((f) => f.id === parts[1]);
+          return flow ? sendJson(res, 200, { flow }) : sendJson(res, 404, { error: "That flow doesn't exist anymore." });
+        }
         if (parts[0] === 'flowshot' && parts[1] && parts[2]) {
           const file = o.flowShot(parts[1], parts[2]);
           if (!file) return sendJson(res, 404, { error: 'No screenshot' });

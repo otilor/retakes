@@ -48,6 +48,7 @@ Orchestrator has no API key of its own. Each request is one headless run of your
 
 A flow is a short user journey you record once, like "search for Lisbon, clear the filters, check it says No filters". Orchestrator replays every flow with [Playwright](https://playwright.dev) on each take after its agent finishes, headless and in the background, against that take's own dev server. A failure only counts against a take if the same flow passes on main.
 
+- **Watch** in the Flows panel plays a flow on the page you're looking at, step by step, highlighting each element, so you can see what it does and where it breaks.
 - Flows are saved in your app at `.orch/flows/<name>.json`, next to a generated `<name>.spec.mjs` Playwright test you can run in CI. Commit them to share them.
 - Each step remembers a few ways to find its element (test ids, labels, roles, then its position), so a take that only restyles or renames a button doesn't break the flow. Checks are strict: if the text changes, the check fails.
 - Replays use your app's own Playwright if it has one. Otherwise Orchestrator installs `playwright-core` once into `~/.orch/runtime`, and uses your Chrome or Edge. It downloads a browser (about 150 MB) only if you have neither.

@@ -56,7 +56,7 @@ function isTextField(el) {
   return el.tagName === 'INPUT' && TEXT_INPUT.test(el.type || 'text');
 }
 
-function roleOf(el) {
+export function roleOf(el) {
   const explicit = el.getAttribute('role');
   if (explicit) return explicit.split(' ')[0];
   const tag = el.tagName;
@@ -71,7 +71,7 @@ function roleOf(el) {
   return null;
 }
 
-function nameOf(el) {
+export function nameOf(el) {
   const aria = el.getAttribute('aria-label');
   if (aria) return aria.trim();
   const by = el.getAttribute('aria-labelledby');

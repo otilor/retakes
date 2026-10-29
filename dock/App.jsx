@@ -3,6 +3,7 @@ import { NotchToaster, toast } from 'notch-toast';
 import { api, CFG, switchTo, hueClass, describeElement, shortLabel } from './lib.js';
 import { Mark, Branch, CompareIcon, PromptIcon, KeepIcon, CloseIcon, FlowIcon } from './icons.jsx';
 import { Recorder, savedRecording, startRecording } from './record.jsx';
+import { Watcher, savedWatch, startWatch } from './replay.jsx';
 
 const PREFS_KEY = '__orch_ui';
 const GAP = 12;
@@ -118,7 +119,7 @@ export default function App({ host, restored, watcher }) {
   const [hidden, setHidden] = useState(false);
   const [pop, setPop] = useState(null);
   const keysRef = useRef({});
-  const [mode, setMode] = useState(() => (CFG.token && savedRecording() ? 'record' : null));
+  const [mode, setMode] = useState(() => (!CFG.token ? null : savedRecording() ? 'record' : savedWatch() ? 'watch' : null));
   const [picked, setPicked] = useState(null);
   const [drag, setDrag] = useState(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -270,7 +271,7 @@ export default function App({ host, restored, watcher }) {
     const onKey = (e) => {
       const t = e.composedPath()[0];
       const typing = t && t.nodeType === 1 && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
-      if (mode === 'record') return;
+      if (mode === 'record' || mode === 'watch') return;
       if (e.key === 'Escape') {
         if (mode) {
           setMode(null);
@@ -426,7 +427,7 @@ export default function App({ host, restored, watcher }) {
     <div className={`root ${theme}`}>
       <NotchToaster position={toasterPos} mode="floating" animation="smooth" />
 
-      {!hidden && mode !== 'compare' && mode !== 'record' && (
+      {!hidden && mode !== 'compare' && mode !== 'record' && mode !== 'watch' && (
         <div
           ref={barRef}
           className={`dock${prefs.open ? '' : ' closed'}${drag ? ' dragging' : ''}${pop ? ' has-pop' : ''}${conn === 'live' ? '' : ' offline'}${size.w ? '' : ' measuring'}`}
@@ -552,7 +553,7 @@ export default function App({ host, restored, watcher }) {
         </div>
       )}
 
-      {pop && !hidden && mode !== 'compare' && mode !== 'record' && (
+      {pop && !hidden && mode !== 'compare' && mode !== 'record' && mode !== 'watch' && (
         <div className={`pop${pop.kind === 'settings' ? ' menu' : ''}`} style={popStyle(edge, pos, size, vp, pop.kind === 'settings' ? 240 : 360)} role="dialog" aria-label="Orchestrator">
           {pop.kind === 'version' && <VersionPanel v={versions.find((x) => x.id === pop.id)} project={snap && snap.project} onClose={() => setPop(null)} setPop={setPop} />}
           {pop.kind === 'compose' && (
@@ -587,6 +588,7 @@ export default function App({ host, restored, watcher }) {
         />
       )}
 
+      {mode === 'watch' && <Watcher host={host} hintAt={edge === 'top' ? 'top' : 'bottom'} onStop={() => setMode(null)} />}
       {mode === 'record' && <Recorder host={host} hintAt={edge === 'top' ? 'top' : 'bottom'} Picker={Picker} onStop={() => setMode(null)} />}
 
       {mode === 'compare' && <Compare versions={versions} onClose={() => setMode(null)} />}
@@ -919,8 +921,17 @@ function FlowsPanel({ v, flows, onRecord }) {
                         </p>
                       ))}
                     <div className="row">
-                      <button type="button" className="pbtn" disabled={busy || running} onClick={() => act(() => api(`versions/${v.id}/run-flows`, { only: [f.id] }))}>
-                        Run on {v.label}
+                      <button
+                        type="button"
+                        className="pbtn primary"
+                        disabled={busy || running || v.id !== CFG.v}
+                        title={v.id !== CFG.v ? `Switch to ${v.label} to watch it here` : 'Play the flow on this page, step by step'}
+                        onClick={() => act(async () => startWatch((await api(`flows/${encodeURIComponent(f.id)}`)).flow))}
+                      >
+                        Watch
+                      </button>
+                      <button type="button" className="pbtn" disabled={busy || running} title="Replay it again in the background" onClick={() => act(() => api(`versions/${v.id}/run-flows`, { only: [f.id] }))}>
+                        Re-run
                       </button>
                       {r.shot && (
                         <a className="link" href={shotUrl(f.id)} target="_blank" rel="noreferrer">
