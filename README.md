@@ -2,7 +2,7 @@
 
 Point at your running app, say what to change, and Claude Code builds it in a separate copy of your project while you watch. Try a few takes, flip between them on the same URL, compare two side by side, and keep the one you like.
 
-It's for one developer working on a Vite app with Claude Code. Nothing to set up in your app, and nothing ships in your build.
+It's for one developer working on a Vite or Next.js app with Claude Code. Nothing to set up in your app, and nothing ships in your build.
 
 ## Start
 
@@ -19,7 +19,7 @@ That starts your dev server behind a hub at **http://localhost:4300** and opens 
 - Node 18.17 or newer, and git
 - Your app in a git repository with at least one commit
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and signed in (`claude` works in your terminal)
-- A Vite app. React apps also get the component name and file when you point at something. Other dev servers work with one line of config (see below).
+- A Vite or Next.js app. React apps also get the component name (and, with Vite, the file) when you point at something. Other dev servers work with one line of config (see below).
 - macOS or Linux. Windows hasn't been tested yet.
 
 ## Use it
@@ -57,7 +57,7 @@ Optional. Put `orch.config.json` in your app's folder:
 ```jsonc
 {
   "port": 4300,                              // the hub's port
-  "dev": "npm run dev -- --port {port}",     // only for non-Vite dev servers
+  "dev": "npm run dev -- --port {port}",     // only for dev servers other than Vite and Next.js
   "setup": "npm ci",                         // runs in each new take instead of the detected install
   "copy": [".env.local"],                    // files copied into each take (default: .env*)
   "agent": {
@@ -92,6 +92,7 @@ npm install
 npm run build      # bundles the dock into dist/dock.js
 npm test           # unit tests
 npm run test:e2e   # every flow end to end in a real browser, with a stand-in agent
+npm run test:e2e:next  # the same on a Next.js app
 ```
 
 ## License

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { spawnGroup, stopTree, canConnect, findPort, releasePort, Tail, stripAnsi } from './proc.js';
-import { findViteBin } from './project.js';
+import { findBin } from './project.js';
 
 const READY_TIMEOUT_MS = 120_000;
 
@@ -113,10 +113,21 @@ export class DevServer extends EventEmitter {
         hosts: ['127.0.0.1', '::1'],
       };
     }
-    const bin = findViteBin(this.appDir, this.stopAt);
+    const name = mode.kind === 'next' ? 'next' : 'vite';
+    const bin = findBin(this.appDir, this.stopAt, name);
     if (!bin) {
+      const label = name === 'next' ? 'Next.js' : 'Vite';
       return {
-        error: `Vite isn't installed in ${this.appDir}. Run \`${this.project.pm.name} install\` there first.`,
+        error: `${label} isn't installed in ${this.appDir}. Run \`${this.project.pm.name} install\` there first.`,
+      };
+    }
+    if (name === 'next') {
+      return {
+        cmd: process.execPath,
+        args: [bin, 'dev', ...mode.args, '--port', String(this.port), '--hostname', '127.0.0.1'],
+        shell: false,
+        env: { ...env, NEXT_TELEMETRY_DISABLED: '1' },
+        hosts: ['127.0.0.1'],
       };
     }
     return {

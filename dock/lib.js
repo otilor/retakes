@@ -140,13 +140,21 @@ function reactInfo(el) {
   if (fiber && fiber._debugSource) source = fmtSource(fiber._debugSource);
   if (!source && fiber && fiber._debugStack) source = fromStack(fiber._debugStack);
   for (let f = fiber; f && names.length < 8; f = f.return) {
-    const name = componentName(f.type);
-    if (name && !names.includes(name)) names.push(name);
-    if (!source && f._debugSource && name) source = fmtSource(f._debugSource);
+    // The owner is the component that rendered this element; for a server component it's a plain
+    // { name, env } object. Framework wrappers (Next's routers and boundaries) are skipped.
+    const owner = f._debugOwner;
+    const ownerName = owner ? (typeof owner.name === 'string' ? owner.name : componentName(owner.type)) : null;
+    for (const name of [ownerName, componentName(f.type)]) {
+      if (name && !FRAMEWORK.test(name) && !names.includes(name)) names.push(name);
+    }
+    if (!source && f._debugSource && names.length) source = fmtSource(f._debugSource);
   }
   if (!names.length && !source) return null;
   return { component: names[0] || null, components: names, source };
 }
+
+const FRAMEWORK =
+  /^(SegmentViewNode|SegmentStateProvider|LayoutRouterContext|InnerLayoutRouter|OuterLayoutRouter|RenderFromTemplateContext|ScrollAndFocusHandler|InnerScrollAndFocusHandler|LoadingBoundary|ErrorBoundary|ErrorBoundaryHandler|RedirectBoundary|RedirectErrorBoundary|HTTPAccessFallbackBoundary|HTTPAccessFallbackErrorBoundary|DevRootHTTPAccessFallbackBoundary|AppRouter|Router|HotReload|ServerRoot|Root|AppDevOverlay|ReplaySsrOnlyErrors|MetadataBoundary|ViewportBoundary|OutletBoundary|__next_[\w]+|Suspense|Fragment)$/;
 
 function componentName(type) {
   if (!type || typeof type === 'string') return null;
@@ -167,6 +175,11 @@ function fmtSource(s) {
 function fromStack(err) {
   const stack = String((err && err.stack) || '');
   for (const line of stack.split('\n').slice(1)) {
+    // Server components (Next.js): "at Home (about://React/Server/file:///…/app/page.tsx:12:9)"
+    const server = line.match(/about:\/\/React\/[^/]+\/file:\/\/([^\s)?]+?):(\d+):\d+/);
+    if (server && !/\/(node_modules|\.next)\//.test(server[1])) {
+      return `${decodeURIComponent(server[1]).replace(/^.*?\/(src|app|components|pages|lib)\//, '$1/')}:${server[2]}`;
+    }
     const m = line.match(/(https?:\/\/[^\s)]+?):(\d+):\d+/);
     if (!m) continue;
     let url;
@@ -176,7 +189,7 @@ function fromStack(err) {
       continue;
     }
     const p = url.pathname;
-    if (p.includes('/node_modules/') || p.startsWith('/@') || p.includes('/.vite/')) continue;
+    if (p.includes('/node_modules/') || p.startsWith('/@') || p.includes('/.vite/') || p.startsWith('/_next/')) continue;
     return `${p.replace(/^\//, '')}:${m[2]}`;
   }
   return null;

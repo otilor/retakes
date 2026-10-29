@@ -9,6 +9,7 @@ import {
   installCommand,
   resolveDevMode,
   viteArgsFromScript,
+  nextArgsFromScript,
   splitArgs,
   filesToCopy,
   slug,
@@ -41,7 +42,9 @@ test('resolveDevMode runs Vite directly, or the configured command', () => {
   assert.equal(resolveDevMode({ scripts: { dev: 'next dev' } }, { dev: 'next dev -p {port}' }).kind, 'command');
   // Vite installed but the dev script wraps it: still run Vite directly.
   assert.equal(resolveDevMode({ scripts: { dev: 'npm run x && vite' }, devDependencies: { vite: '^8' } }, {}).kind, 'vite');
-  assert.throws(() => resolveDevMode({ scripts: { dev: 'next dev' } }, {}), UserError);
+  assert.deepEqual(resolveDevMode({ scripts: { dev: 'next dev --turbopack -p 3001' } }, {}), { kind: 'next', args: ['--turbopack'] });
+  assert.equal(resolveDevMode({ scripts: { dev: 'run-p dev:*' }, dependencies: { next: '16' } }, {}).kind, 'next');
+  assert.throws(() => resolveDevMode({ scripts: { dev: 'remix dev' } }, {}), UserError);
 });
 
 test('loadConfig validates each field', () => {
@@ -95,4 +98,10 @@ test('filesToCopy picks up .env files by default', () => {
 test('slug makes a safe folder name', () => {
   assert.equal(slug('@acme/Web App!'), 'acme-web-app');
   assert.equal(slug('***'), 'app');
+});
+
+test('nextArgsFromScript keeps flags but drops the port and hostname', () => {
+  assert.deepEqual(nextArgsFromScript('next dev'), []);
+  assert.deepEqual(nextArgsFromScript('next dev --turbopack --port=3000 -H 0.0.0.0'), ['--turbopack']);
+  assert.deepEqual(nextArgsFromScript('next dev -p 3000 --webpack'), ['--webpack']);
 });

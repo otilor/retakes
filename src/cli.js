@@ -37,7 +37,7 @@ ${bold('Options')}
 ${bold('Config')} (optional, orch.config.json in your app's folder)
   {
     "port": 4300,
-    "dev": "npm run dev -- --port {port}",   ${dim('// only for non-Vite dev servers')}
+    "dev": "npm run dev -- --port {port}",   ${dim('// only for dev servers other than Vite and Next.js')}
     "setup": "npm ci",                       ${dim('// runs in each new take')}
     "copy": [".env.local"],                  ${dim('// files copied into each take (default: .env*)')}
     "agent": { "model": "haiku" }            ${dim('// sonnet by default; haiku or opus also work')}
@@ -128,7 +128,8 @@ async function start(opts) {
 
   console.log(`\n${bold('Orchestrator')} ${dim(pkg.version)}  ${project.name}`);
   if (project.devMode.note === 'ignoring-script') {
-    console.log(dim(`Your "dev" script doesn't start with vite, so Orchestrator runs vite directly. Set "dev" in orch.config.json if it needs more.`));
+    const tool = project.devMode.kind === 'next' ? 'next dev' : 'vite';
+    console.log(dim(`Your "dev" script doesn't start with ${tool}, so Orchestrator runs ${tool} directly. Set "dev" in orch.config.json if it needs more.`));
   }
   const orch = new Orchestrator(project, { log });
   const hub = new Hub(orch, { port, host, dockFile: DOCK_FILE, log });

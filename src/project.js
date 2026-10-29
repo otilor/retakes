@@ -141,7 +141,7 @@ export function installCommand(pm) {
 }
 
 /**
- * How to start a dev server on a given port. Vite apps need no config: we run Vite
+ * How to start a dev server on a given port. Vite and Next.js apps need no config: we run them
  * ourselves with the arguments from the "dev" script. Anything else needs "dev" in
  * orch.config.json.
  */
@@ -149,13 +149,33 @@ export function resolveDevMode(pkg, config) {
   if (config.dev) return { kind: 'command', command: config.dev };
   const script = pkg.scripts && pkg.scripts.dev;
   const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+  if (script && /^\s*next\s+dev(\s|$)/.test(script)) {
+    return { kind: 'next', args: nextArgsFromScript(script) };
+  }
   if (script && /^\s*vite(\s|$)/.test(script)) {
     return { kind: 'vite', args: viteArgsFromScript(script) };
   }
+  if (deps.next) return { kind: 'next', args: [], note: script ? 'ignoring-script' : null };
   if (deps.vite) return { kind: 'vite', args: [], note: script ? 'ignoring-script' : null };
   throw new UserError(
-    'Orchestrator runs Vite apps out of the box. For another dev server, add "dev" to orch.config.json with a {port} placeholder, like:\n  { "dev": "npm run dev -- --port {port}" }'
+    'Orchestrator runs Vite and Next.js apps out of the box. For another dev server, add "dev" to orch.config.json with a {port} placeholder, like:\n  { "dev": "npm run dev -- --port {port}" }'
   );
+}
+
+/** Split a "next dev ..." npm script into arguments after "dev", dropping the port and hostname. */
+export function nextArgsFromScript(script) {
+  const tokens = splitArgs(script.trim()).slice(2);
+  const out = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    const name = t.split('=')[0];
+    if (['--port', '-p', '--hostname', '-H'].includes(name)) {
+      if (!t.includes('=') && tokens[i + 1] !== undefined && !tokens[i + 1].startsWith('-')) i++;
+      continue;
+    }
+    out.push(t);
+  }
+  return out;
 }
 
 /** Split a "vite ..." npm script into arguments, dropping the ones Orchestrator sets itself. */
@@ -199,16 +219,16 @@ export function splitArgs(s) {
   return out;
 }
 
-/** Find Vite's CLI entry, walking up from the app folder like Node's resolver does. */
-export function findViteBin(appDir, stopAt) {
+/** Find a package's CLI entry (vite, next), walking up from the app folder like Node's resolver does. */
+export function findBin(appDir, stopAt, name = 'vite') {
   let d = appDir;
   for (;;) {
-    const pkgFile = path.join(d, 'node_modules', 'vite', 'package.json');
+    const pkgFile = path.join(d, 'node_modules', name, 'package.json');
     if (fs.existsSync(pkgFile)) {
       try {
         const vpkg = JSON.parse(fs.readFileSync(pkgFile, 'utf8'));
-        const bin = typeof vpkg.bin === 'string' ? vpkg.bin : vpkg.bin && vpkg.bin.vite;
-        if (bin) return path.join(d, 'node_modules', 'vite', bin);
+        const bin = typeof vpkg.bin === 'string' ? vpkg.bin : vpkg.bin && vpkg.bin[name];
+        if (bin) return path.join(d, 'node_modules', name, bin);
       } catch {
         /* keep looking */
       }

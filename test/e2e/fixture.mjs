@@ -7,13 +7,13 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.join(here, '..', '..');
-const FIXTURE = path.join(ROOT, 'test', 'fixtures', 'app');
 
-export function makeApp({ base = process.env.ORCH_E2E_DIR || path.join(os.tmpdir(), 'orch-e2e'), config } = {}) {
+export function makeApp({ base = process.env.ORCH_E2E_DIR || path.join(os.tmpdir(), 'orch-e2e'), config, fixture = 'app', env = 'VITE_GREETING=hello from env\n' } = {}) {
+  const FIXTURE = path.join(ROOT, 'test', 'fixtures', fixture);
   fs.mkdirSync(base, { recursive: true });
   const dir = fs.mkdtempSync(path.join(base, 'app-'));
   fs.cpSync(FIXTURE, dir, { recursive: true, filter: (src) => !src.includes('node_modules') });
-  fs.writeFileSync(path.join(dir, '.env.local'), 'VITE_GREETING=hello from env\n');
+  fs.writeFileSync(path.join(dir, '.env.local'), env);
   if (config) fs.writeFileSync(path.join(dir, 'orch.config.json'), JSON.stringify(config, null, 2));
   const git = (...a) => execFileSync('git', a, { cwd: dir, stdio: 'pipe' }).toString();
   git('init', '-q', '-b', 'main');

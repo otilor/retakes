@@ -91,13 +91,43 @@ export async function changedFiles(cwd, base, branch) {
 
 /** Merge a branch into whatever the main checkout has checked out. Aborts cleanly on conflicts. */
 export async function mergeBranch(gitRoot, branch, message) {
+  const merge = async () => {
+    try {
+      await git([...(await identityArgs(gitRoot)), 'merge', '--no-ff', '--no-edit', '-m', message, branch], gitRoot);
+    } catch (err) {
+      const mergeHead = (await git(['rev-parse', '--git-path', 'MERGE_HEAD'], gitRoot)).trim();
+      if (fs.existsSync(path.resolve(gitRoot, mergeHead))) await git(['merge', '--abort'], gitRoot).catch(() => {});
+      throw err;
+    }
+  };
   try {
-    await git([...(await identityArgs(gitRoot)), 'merge', '--no-ff', '--no-edit', '-m', message, branch], gitRoot);
+    await merge();
   } catch (err) {
-    const mergeHead = (await git(['rev-parse', '--git-path', 'MERGE_HEAD'], gitRoot)).trim();
-    if (fs.existsSync(path.resolve(gitRoot, mergeHead))) await git(['merge', '--abort'], gitRoot).catch(() => {});
-    throw err;
+    // Dev servers write files of their own (Next.js writes AGENTS.md), so the same untracked file
+    // can exist in your checkout and be committed on the take. When the contents match, the merge
+    // would write exactly what's there, so set them aside, merge, and put them back on failure.
+    const files = untrackedInTheWay(err.message);
+    if (!files.length) throw err;
+    const saved = [];
+    for (const rel of files) {
+      const abs = path.join(gitRoot, rel);
+      const theirs = await git(['show', `${branch}:${rel}`], gitRoot).catch(() => null);
+      if (theirs === null || !fs.existsSync(abs) || fs.readFileSync(abs, 'utf8') !== theirs) throw err;
+      saved.push([abs, fs.readFileSync(abs)]);
+    }
+    for (const [abs] of saved) fs.unlinkSync(abs);
+    try {
+      await merge();
+    } catch (err2) {
+      for (const [abs, data] of saved) if (!fs.existsSync(abs)) fs.writeFileSync(abs, data);
+      throw err2;
+    }
   }
+}
+
+export function untrackedInTheWay(message) {
+  const m = String(message).match(/untracked working tree files would be overwritten by merge:\n([\s\S]*?)\n(Please|Aborting)/);
+  return m ? m[1].split('\n').map((l) => l.trim()).filter(Boolean) : [];
 }
 
 /** Branches Orchestrator made, from `git worktree list`, so `orch clean` can find leftovers. */

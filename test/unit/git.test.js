@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { commitAll, addWorktree, removeWorktree, mergeBranch, branchExists, changedFiles } from '../../src/git.js';
+import { commitAll, addWorktree, removeWorktree, mergeBranch, branchExists, changedFiles, untrackedInTheWay } from '../../src/git.js';
 import { findPort, releasePort, Tail, stripAnsi } from '../../src/proc.js';
 
 function repo() {
@@ -72,4 +72,22 @@ test('Tail keeps the last lines across chunk boundaries', () => {
   t.push('o\nthree\nfour');
   assert.equal(t.text(), 'three\nfour');
   assert.equal(stripAnsi('\u001b[32mready\u001b[39m'), 'ready');
+});
+
+test('Keep merges over an identical untracked file a dev server wrote, but never a different one', async () => {
+  const { dir, git } = repo();
+  const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'orch-wt-')), 't1');
+  await addWorktree(dir, wt, 'orch/take-1', 'HEAD');
+  fs.writeFileSync(path.join(wt, 'AGENTS.md'), 'generated\n');
+  fs.writeFileSync(path.join(wt, 'b.txt'), 'new\n');
+  await commitAll(wt, 'take 1');
+  fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'mine, different\n');
+  await assert.rejects(mergeBranch(dir, 'orch/take-1', 'Keep agent-1'), /overwritten/);
+  assert.equal(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), 'mine, different\n');
+  fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'generated\n');
+  await mergeBranch(dir, 'orch/take-1', 'Keep agent-1');
+  assert.equal(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), 'generated\n');
+  assert.equal(git('status', '--porcelain'), '');
+  await removeWorktree(dir, wt, 'orch/take-1');
+  assert.deepEqual(untrackedInTheWay('error: The following untracked working tree files would be overwritten by merge:\n\tAGENTS.md\n\tx/y.md\nPlease move or remove them before you merge.'), ['AGENTS.md', 'x/y.md']);
 });

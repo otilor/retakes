@@ -1,7 +1,7 @@
 import { api, CFG } from './lib.js';
 
 /**
- * Send the page's uncaught errors, and Vite's build errors, to the hub so the version's
+ * Send the page's uncaught errors, and Vite's and Next.js's build errors, to the hub so the version's
  * tile can show them and the agent can be asked to fix them.
  */
 export function watchErrors() {
@@ -30,8 +30,27 @@ export function watchErrors() {
     q.push({ message: text.slice(0, 500), stack: file ? file.textContent.trim() : '', kind: 'build' });
     drain();
   };
+  // Next.js shows build errors in its own dev overlay. Runtime errors already reach us as
+  // window errors, so only build errors are read from here.
+  let lastNext = '';
+  const checkNext = () => {
+    const root = document.querySelector('nextjs-portal')?.shadowRoot;
+    const dialog = root && root.querySelector('[data-nextjs-dialog]');
+    const read = (sel) => ((root && root.querySelector(sel)) || {}).innerText || '';
+    const label = dialog ? read('#nextjs__container_errors_label').trim() : '';
+    if (!/build|compil/i.test(label)) {
+      lastNext = '';
+      return;
+    }
+    const message = `${label}: ${read('#nextjs__container_errors_desc').trim() || 'see the overlay'}`.slice(0, 500);
+    if (message === lastNext) return;
+    lastNext = message;
+    q.push({ message, stack: read('[data-nextjs-codeframe]').trim().slice(0, 2000), kind: 'build' });
+    drain();
+  };
   const start = () => {
     checkOverlay();
+    if (window.next || document.querySelector('script[src*="/_next/"]')) setInterval(checkNext, 1000);
     new MutationObserver((list) => {
       for (const m of list) for (const n of m.addedNodes) if (n.nodeName === 'VITE-ERROR-OVERLAY') return setTimeout(checkOverlay, 50);
     }).observe(document.body, { childList: true });
