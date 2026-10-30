@@ -7,6 +7,10 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 const args = process.argv.slice(2);
+if (args.includes('--help')) {
+  process.stdout.write('  --model <model>\n  --effort <level>\n');
+  process.exit(0);
+}
 const flag = (name) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;

@@ -15,6 +15,11 @@ export async function probeAgent(command = 'claude') {
   return agentHelp;
 }
 
+/** Whether this Claude Code version takes a flag, or null before probeAgent has finished. */
+export function agentKnows(flag) {
+  return agentHelp === null ? null : agentHelp.includes(flag);
+}
+
 /** For tests: pretend `claude --help` printed this. */
 export function setAgentHelp(text) {
   agentHelp = text;

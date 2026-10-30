@@ -285,7 +285,22 @@ try {
     ok((await page.locator('.chip').count()) === 0, 'clearing works now');
   });
 
-  await step('Try another starts a second take of the same prompt', async () => {
+  await step('Try another starts a second take of the same prompt, on the model picked in the dock', async () => {
+    ok((await state()).agent.model === 'sonnet', 'Sonnet until something else is picked');
+    await page.keyboard.press('p');
+    await page.locator('retakes-dock .pick-hint').waitFor();
+    await page.keyboard.press('Enter');
+    await page.locator('retakes-dock .opts').waitFor();
+    ok((await page.locator('retakes-dock .opts button').count()) === 8, 'three models and five effort levels');
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: path.join(SHOTS, '05b-model-pick.png') });
+    await page.locator('retakes-dock .opts button', { hasText: 'Opus' }).click();
+    await page.locator('retakes-dock .opts button', { hasText: /^High$/ }).click();
+    await until(async () => (await state()).agent.model === 'opus' && (await state()).agent.effort === 'high', 'the hub has the pick');
+    ok((await page.locator('retakes-dock .opts button[aria-pressed="true"]', { hasText: 'Opus' }).count()) === 1, 'Opus shows as picked');
+    await page.keyboard.press('Escape');
+    const bad = await apiCall('agent', { model: '--dangerously-skip-permissions' });
+    ok(bad.status === 400, 'a flag is not a model');
     const r = await apiCall('takes/t1/another', {});
     ok(r.status === 200 && r.body.take.id === 't2', `agent-2 created (${JSON.stringify(r)})`);
     ok(r.body.take.attempt === 2, 'it is take 2');
@@ -293,6 +308,10 @@ try {
     ok(t2.prompt === 'make the search bar larger', 'same prompt');
     const call = mockCalls().find((c) => c.prompt.includes('This is take 2'));
     ok(call, 'the prompt asks for a different take');
+    ok(call.args.join(' ').includes('--model opus'), 'agent-2 ran on Opus');
+    ok(call.args.join(' ').includes('--effort high'), 'on high effort');
+    ok(t2.model === 'opus' && t2.effort === 'high', 'its panel can say so');
+    await apiCall('agent', { model: 'sonnet', effort: 'low' });
   });
 
   await step('Compare shows two versions side by side and scrolls them together', async () => {

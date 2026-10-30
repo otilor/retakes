@@ -3,9 +3,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { DevServer } from './devserver.js';
-import { AgentRun, probeAgent } from './agent.js';
+import { AgentRun, probeAgent, agentKnows } from './agent.js';
 import { UserError, spawnGroup, stopTree, Tail, stripAnsi } from './proc.js';
-import { installCommand, filesToCopy } from './project.js';
+import { installCommand, filesToCopy, EFFORTS, MODELS, isModelName } from './project.js';
 import * as G from './git.js';
 import { takePrompt, refinePrompt, fixPrompt, continuePrompt } from './prompt.js';
 import { FlowRunner, loadFlows, saveFlow, deleteFlow, describeStep } from './flows.js';
@@ -19,7 +19,7 @@ const FLOW_SETTLE_MS = 1500;
  * git worktree with its own dev server and its own Claude Code session.
  */
 export class Retakes extends EventEmitter {
-  constructor(project, { log = () => {} } = {}) {
+  constructor(project, { log = () => {}, agent = {} } = {}) {
     super();
     this.p = project;
     this.log = log;
@@ -28,6 +28,12 @@ export class Retakes extends EventEmitter {
     fs.mkdirSync(this.logsDir, { recursive: true });
     fs.mkdirSync(project.takesDir, { recursive: true });
     this.state = this.loadState();
+    // The model and effort picked in the dock. --model and --effort on the command line replace the saved pick.
+    const saved = this.state.agent || {};
+    this.state.agent = {
+      model: agent.model || (isModelName(saved.model) ? saved.model : null),
+      effort: agent.effort || (EFFORTS.includes(saved.effort) ? saved.effort : null),
+    };
     this.takes = new Map();
     this.branch = null;
     this.flowsShotDir = path.join(project.stateDir, 'flows');
@@ -119,6 +125,8 @@ export class Retakes extends EventEmitter {
         runs: m.runs.length,
         canRetry: !t.run && m.runs.length > 0 && m.runs[m.runs.length - 1].ok === false,
         lastResult: lastResult(m),
+        model: m.model || null,
+        effort: m.effort || null,
         errors: errs(t.errors),
         flows: this.flowResults(t),
         switchable: !!t.server && t.server.status === 'ready',
@@ -126,7 +134,50 @@ export class Retakes extends EventEmitter {
       });
     }
     const flows = this.flows.map((f) => ({ id: f.id, name: f.name, start: f.start, steps: f.steps.length }));
-    return { project: { name: this.p.name, branch: this.branch }, versions, flows };
+    return { project: { name: this.p.name, branch: this.branch }, versions, flows, agent: this.agentInfo() };
+  }
+
+  // ---------- model and effort ----------
+
+  /** The model and effort the next run uses: the dock's pick, else the config, else Sonnet on low. */
+  agentChoice() {
+    const cfg = this.p.config.agent || {};
+    return {
+      model: this.state.agent.model || cfg.model || 'sonnet',
+      effort: this.state.agent.effort || cfg.effort || 'low',
+    };
+  }
+
+  agentInfo() {
+    const { model, effort } = this.agentChoice();
+    const extra = (this.p.config.agent && this.p.config.agent.args) || [];
+    const has = (flag) => extra.some((a) => a === flag || a.startsWith(`${flag}=`));
+    const knows = agentKnows('--effort');
+    return {
+      model,
+      effort,
+      models: MODELS.includes(model) ? MODELS : [...MODELS, model],
+      // null until we know; false when this Claude Code has no --effort.
+      efforts: knows === null ? null : knows ? EFFORTS : false,
+      // agent.args with its own --model or --effort wins over the dock.
+      locked: { model: has('--model'), effort: has('--effort') },
+    };
+  }
+
+  setAgent({ model, effort } = {}) {
+    if (model !== undefined) {
+      if (!isModelName(model)) throw new UserError('Pick a model, like sonnet, haiku or opus.');
+      this.state.agent.model = model;
+    }
+    if (effort !== undefined) {
+      if (!EFFORTS.includes(effort)) throw new UserError(`Effort is one of ${EFFORTS.join(', ')}.`);
+      this.state.agent.effort = effort;
+    }
+    const now = this.agentChoice();
+    this.log(`agent: new runs use ${now.model}, ${now.effort} effort`);
+    this.save();
+    this.changed();
+    return this.agentInfo();
   }
 
   flowResults(v) {
@@ -167,7 +218,8 @@ export class Retakes extends EventEmitter {
   // ---------- lifecycle ----------
 
   async start() {
-    probeAgent((this.p.config.agent && this.p.config.agent.command) || 'claude');
+    // Once we know whether this Claude Code takes --effort, the dock can offer it.
+    probeAgent((this.p.config.agent && this.p.config.agent.command) || 'claude').then(() => this.changed());
     this.branch = await G.currentBranch(this.p.gitRoot).catch(() => null);
     this.branchTimer = setInterval(async () => {
       const b = await G.currentBranch(this.p.gitRoot).catch(() => this.branch);
@@ -417,6 +469,7 @@ export class Retakes extends EventEmitter {
   runAgent(t, kind, text, promptText) {
     const m = t.meta;
     if (t.run) throw new UserError(`agent-${m.n} is still working. Wait for it, or stop it first.`);
+    const { model, effort } = this.agentChoice();
     const run = new AgentRun({
       cwd: m.appDir,
       prompt: promptText,
@@ -424,11 +477,21 @@ export class Retakes extends EventEmitter {
       resume: m.hasSession,
       config: {
         ...(this.p.config.agent || {}),
+        model,
+        effort,
         args: [...(this.p.rel ? ['--add-dir', m.dir] : []), ...((this.p.config.agent && this.p.config.agent.args) || [])],
       },
       logFile: this.logFile(m.id),
     });
-    const entry = { kind, text, at: Date.now() };
+    // What this run really got: agent.args can name its own, and older Claude Codes have no --effort.
+    const used = (flag) => {
+      const args = run.args();
+      const i = args.findIndex((x) => x === flag || x.startsWith(`${flag}=`));
+      return i < 0 ? null : args[i].includes('=') ? args[i].split('=').slice(1).join('=') : args[i + 1] || null;
+    };
+    m.model = used('--model');
+    m.effort = used('--effort');
+    const entry = { kind, text, at: Date.now(), model: m.model, effort: m.effort };
     m.runs.push(entry);
     t.run = run;
     t.agent = { status: 'running', step: kind === 'fix' ? 'Looking at the errors' : 'Reading the code', error: null, startedAt: Date.now() };

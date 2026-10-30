@@ -171,6 +171,11 @@ button { font: inherit; color: inherit; }
 .seg { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--field); }
 .seg button { padding: 4px 7px; border: 0; border-radius: 6px; background: none; font-size: 12px; color: var(--muted); cursor: pointer; outline: none; }
 .seg button[aria-pressed="true"] { background: var(--press); color: var(--fg); }
+.seg button:disabled { cursor: default; opacity: .6; }
+.opts { display: grid; gap: 4px; margin-top: 8px; }
+.opts + .row { margin-top: 8px; }
+.opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
+.opt .seg { flex-wrap: wrap; justify-content: flex-end; }
 .mhr { height: 1px; margin: 4px 6px; background: var(--line); }
 
 /* ---------- flows ---------- */

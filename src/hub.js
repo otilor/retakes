@@ -315,6 +315,9 @@ export class Hub {
         o.runFlows(id, { only: Array.isArray(body.only) ? body.only.map(String) : null }).catch((err) => this.log('Flow replay failed', err.stack || err.message));
         return sendJson(res, 200, { ok: true });
       }
+      if (a === 'agent' && !id) {
+        return sendJson(res, 200, { agent: o.setAgent({ model: body.model, effort: body.effort }) });
+      }
       if (a === 'pin') {
         return sendJson(res, 200, { port: await this.pin(String(body.version || '')) });
       }

@@ -557,7 +557,7 @@ export default function App({ host, restored, watcher }) {
         <div className={`pop${pop.kind === 'settings' ? ' menu' : ''}`} style={popStyle(edge, pos, size, vp, pop.kind === 'settings' ? 240 : 360)} role="dialog" aria-label="Retakes">
           {pop.kind === 'version' && <VersionPanel v={versions.find((x) => x.id === pop.id)} project={snap && snap.project} onClose={() => setPop(null)} setPop={setPop} />}
           {pop.kind === 'compose' && (
-            <Composer servedTake={servedTake} picked={picked} setPicked={setPicked} onRepick={onPrompt} onDone={() => setPop(null)} />
+            <Composer agent={snap && snap.agent} servedTake={servedTake} picked={picked} setPicked={setPicked} onRepick={onPrompt} onDone={() => setPop(null)} />
           )}
           {pop.kind === 'flows' && <FlowsPanel v={now} flows={(snap && snap.flows) || []} onRecord={onRecord} />}
           {pop.kind === 'keep' && <KeepPanel v={versions.find((x) => x.id === pop.id)} branch={snap && snap.project.branch} onClose={() => setPop(null)} />}
@@ -673,11 +673,15 @@ function VersionPanel({ v, project, onClose, setPop }) {
       </div>
       <p className="quote">
         {v.prompt}
-        {(v.attempt > 1 || v.element) && (
+        {(v.attempt > 1 || v.element || v.model) && (
           <small>
-            {v.attempt > 1 ? `Take ${v.attempt} of this prompt` : ''}
-            {v.attempt > 1 && v.element ? ' · ' : ''}
-            {v.element ? `Pointed at ${v.element.component || v.element.selector || 'an element'}` : ''}
+            {[
+              v.attempt > 1 ? `Take ${v.attempt} of this prompt` : '',
+              v.element ? `Pointed at ${v.element.component || v.element.selector || 'an element'}` : '',
+              v.model ? `${v.model}${v.effort ? `, ${v.effort} effort` : ''}` : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </small>
         )}
       </p>
@@ -1014,7 +1018,7 @@ function KeepPanel({ v, branch, onClose }) {
   );
 }
 
-function Composer({ servedTake, picked, setPicked, onRepick, onDone }) {
+function Composer({ agent, servedTake, picked, setPicked, onRepick, onDone }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
@@ -1079,6 +1083,7 @@ function Composer({ servedTake, picked, setPicked, onRepick, onDone }) {
           }
         }}
       />
+      <AgentPick agent={agent} />
       <div className="row end">
         {servedTake && (
           <button type="button" className={`pbtn${primary === 'new' ? ' primary' : ''}`} disabled={busy || !text.trim()} onClick={() => submit('new')}>
@@ -1103,6 +1108,52 @@ function Composer({ servedTake, picked, setPicked, onRepick, onDone }) {
           : 'Claude Code works on a copy of your last commit, and you can watch it land live.'}
       </p>
     </>
+  );
+}
+
+const EFFORT_LABELS = { low: 'Low', medium: 'Med', high: 'High', xhigh: 'XHigh', max: 'Max' };
+
+/** Which model and effort the next run uses. The hub remembers the pick for this app. */
+function AgentPick({ agent }) {
+  const [pending, setPending] = useState(null);
+  useEffect(() => setPending(null), [agent && agent.model, agent && agent.effort]);
+  if (!agent) return null;
+  const now = { model: agent.model, effort: agent.effort, ...pending };
+  const pick = async (change) => {
+    setPending((p) => ({ ...p, ...change }));
+    try {
+      await api('agent', change);
+    } catch (err) {
+      setPending(null);
+      toast.error(err.message, { duration: 8000, dismissible: true });
+    }
+  };
+  const lockedTip = 'Set by agent.args in retakes.config.json';
+  return (
+    <div className="opts">
+      <div className="opt">
+        <span>Model</span>
+        <span className="seg" title={agent.locked.model ? lockedTip : undefined}>
+          {agent.models.map((m) => (
+            <button key={m} type="button" disabled={agent.locked.model} aria-pressed={now.model === m} onClick={() => now.model !== m && pick({ model: m })}>
+              {m.length > 10 ? m : m[0].toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+        </span>
+      </div>
+      {agent.efforts && (
+        <div className="opt">
+          <span>Effort</span>
+          <span className="seg" title={agent.locked.effort ? lockedTip : undefined}>
+            {agent.efforts.map((e) => (
+              <button key={e} type="button" disabled={agent.locked.effort} aria-pressed={now.effort === e} onClick={() => now.effort !== e && pick({ effort: e })}>
+                {EFFORT_LABELS[e] || e}
+              </button>
+            ))}
+          </span>
+        </div>
+      )}
+    </div>
   );
 }
 
