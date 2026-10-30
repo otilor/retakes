@@ -16,7 +16,7 @@ function polar(routes) {
     const body = JSON.parse(init.body);
     calls.push({ action, body });
     if (!routes[action]) throw new Error('offline');
-    const [status, json] = routes[action](body);
+    const [status, json] = await routes[action](body);
     return { status, text: async () => (json === undefined ? '' : JSON.stringify(json)) };
   };
   return { fetch, calls };
@@ -153,6 +153,32 @@ test('refresh never undoes activate or deactivate run in another terminal', asyn
   t += DAY + 1;
   assert.equal((await hub.refresh()).active, false);
   assert.equal(hub.data, null);
+});
+
+test('activate in another terminal while a refresh is in flight is kept', async () => {
+  let t = 1_000 * DAY;
+  let release;
+  let gate = null;
+  const { make } = setup(
+    {
+      activate: (b) => [200, { id: `act-${b.key}`, license_key: { status: 'granted' } }],
+      validate: () => (gate ? gate.then(() => [404, { detail: 'Not found' }]) : [200, { status: 'granted' }]),
+      deactivate: () => [204, undefined],
+    },
+    { now: () => t }
+  );
+  const hub = make();
+  await hub.activate('KEY-00001111');
+  t += DAY + 1;
+  gate = new Promise((r) => (release = r));
+  const pending = hub.refresh();
+  gate = null; // the other terminal's own calls answer straight away
+  await make().activate('KEY-22223333');
+  release();
+  await pending;
+  assert.equal(hub.data.key, 'KEY-22223333');
+  assert.equal(hub.data.status, 'granted');
+  assert.equal(hub.active, true);
 });
 
 test('a failed deactivate keeps the key so the slot can still be freed', async () => {
