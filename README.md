@@ -32,7 +32,7 @@ That starts your dev server behind a hub at **http://localhost:4300** and opens 
 - **Switch in place.** Click a tile to view another take on the same URL, at the same scroll, still signed in.
 - **Try another.** Run the same request again for a different approach, or keep refining a take in the same Claude session.
 - **Compare.** Two versions side by side, scrolling together.
-- **Switch models and effort.** Pick Haiku, Sonnet or Opus and an effort level right in the dock. Each take shows what it ran on, so you can try the same request on two models and compare.
+- **Switch models and effort.** Pick Haiku, Sonnet or Opus right in the dock, and an effort level when your Claude Code supports `--effort`. Each take shows what it ran on, so you can try the same request on two models and compare.
 - **Fix errors in one click.** Takes that throw in the browser get a badge, and **Fix** sends the errors back to that take's agent.
 - **Flows.** Record a user journey once, and Retakes replays it with Playwright on every take to catch what broke.
 - **Keep or discard.** Keep merges a take into your branch as one commit; Discard deletes it.
@@ -45,7 +45,7 @@ That starts your dev server behind a hub at **http://localhost:4300** and opens 
 | Switch versions | Click a tile in the dock. |
 | Refine a take | Open its tile and type in **Ask agent-N**. It continues the same Claude session. |
 | Try another take | **Try another** reruns the request, asking for a different approach. |
-| Switch model or effort | In the **Ask for a change** panel, pick a model and an effort level. New runs use them, including follow-ups, Fix and Try another; Retakes remembers the pick for this app. |
+| Switch model or effort | In the **Ask for a change** panel, pick a model and (when your Claude Code supports it) an effort level. New runs use them, including follow-ups, Fix and Try another; Retakes remembers the pick for this app. |
 | Compare | Press **C**, or click the split-screen button. |
 | Fix errors | Click **Fix** on a badged tile. |
 | Record a flow | Press **F**, then **Record a flow**, and use the page the way you'd test it. **Add check** picks text that should be on the page. |

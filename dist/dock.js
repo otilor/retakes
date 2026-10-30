@@ -192,7 +192,8 @@ button { font: inherit; color: inherit; }
 .opts { display: grid; gap: 4px; margin-top: 8px; }
 .opts + .row { margin-top: 8px; }
 .opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
-.opt .seg { flex-wrap: wrap; justify-content: flex-end; }
+.opt .seg { min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.opt .seg button { overflow-wrap: anywhere; }
 .mhr { height: 1px; margin: 4px 6px; background: var(--line); }
 
 /* ---------- flows ---------- */

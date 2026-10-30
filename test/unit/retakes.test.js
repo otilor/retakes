@@ -40,6 +40,7 @@ test('setAgent rejects anything that is not a model or an effort level', () => {
   assert.throws(() => r.setAgent({ model: '--dangerously-skip-permissions' }), UserError);
   assert.throws(() => r.setAgent({ model: '' }), UserError);
   assert.throws(() => r.setAgent({ effort: 'turbo' }), UserError);
+  assert.throws(() => r.setAgent({ model: 'opus', effort: 'turbo' }), UserError);
   assert.deepEqual(r.agentChoice(), { model: 'sonnet', effort: 'low' });
 });
 
@@ -48,6 +49,7 @@ test('a custom model is offered next to the usual ones, and agent.args locks the
   const info = r.snapshot().agent;
   assert.deepEqual(info.models, ['haiku', 'sonnet', 'opus', 'claude-sonnet-4-5']);
   assert.deepEqual(info.locked, { model: false, effort: true });
+  assert.equal(info.effort, 'high', 'the locked picker shows what runs really get');
 });
 
 test('effort is hidden when this Claude Code has no --effort', () => {
