@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AgentRun, describeTool, explainError, setAgentHelp } from '../../src/agent.js';
+import { AgentRun, describeTool, explainError, setAgentHelp, agentKnows } from '../../src/agent.js';
 import { takePrompt, refinePrompt, fixPrompt, describeElement, continuePrompt } from '../../src/prompt.js';
 
 const argsOf = (opts) => new AgentRun({ cwd: '/tmp', prompt: 'x', sessionId: 'sid', ...opts }).args();
@@ -13,6 +13,15 @@ test('a first run starts a named session on Sonnet with edits allowed', () => {
   assert.equal(valueAfter(args, '--session-id'), 'sid');
   assert.equal(valueAfter(args, '--model'), 'sonnet');
   assert.ok(!args.includes('--resume'));
+});
+
+test('agentKnows matches whole flags, not lookalikes', () => {
+  setAgentHelp('  --effort <level>  How hard to think\n  --strict-mcp-config');
+  assert.equal(agentKnows('--effort'), true);
+  assert.equal(agentKnows('--strict-mcp-config'), true);
+  setAgentHelp('  --effort-mode <m>\n  Use --effortless to relax');
+  assert.equal(agentKnows('--effort'), false);
+  setAgentHelp(null);
 });
 
 test('a follow-up resumes the same session', () => {

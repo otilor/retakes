@@ -16,6 +16,16 @@ const LOCKFILES = [
 
 const CONFIG_FILE = 'retakes.config.json';
 
+/** Claude Code's --effort levels, lowest first. */
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+/** The models the dock offers. Any other name Claude Code takes works from the config or --model. */
+export const MODELS = ['haiku', 'sonnet', 'opus'];
+
+/** A model alias or full model id, like "opus" or "claude-sonnet-4-5". Nothing that could pass as a flag. */
+export function isModelName(m) {
+  return typeof m === 'string' && /^[A-Za-z0-9][\w.:@/[\]-]{0,99}$/.test(m);
+}
+
 export async function detectProject(cwd) {
   const dir = path.resolve(cwd);
   const pkgPath = path.join(dir, 'package.json');
@@ -104,8 +114,8 @@ export function loadConfig(appDir) {
     if (a.command !== undefined && typeof a.command !== 'string') bad('agent.command', 'a command, like "claude"');
     if (a.args !== undefined && (!Array.isArray(a.args) || a.args.some((x) => typeof x !== 'string'))) bad('agent.args', 'a list of strings');
     if (a.permissionMode !== undefined && typeof a.permissionMode !== 'string') bad('agent.permissionMode', 'a string');
-    if (a.model !== undefined && (typeof a.model !== 'string' || !a.model.trim())) bad('agent.model', 'a model name, like "sonnet", "haiku" or "opus"');
-    if (a.effort !== undefined && !['low', 'medium', 'high', 'xhigh', 'max'].includes(a.effort)) bad('agent.effort', 'one of "low", "medium", "high", "xhigh" or "max"');
+    if (a.model !== undefined && !isModelName(a.model)) bad('agent.model', 'a model name, like "sonnet", "haiku" or "opus"');
+    if (a.effort !== undefined && !EFFORTS.includes(a.effort)) bad('agent.effort', 'one of "low", "medium", "high", "xhigh" or "max"');
     out.agent = { command: a.command, args: a.args, permissionMode: a.permissionMode, model: a.model, effort: a.effort };
   }
   return out;

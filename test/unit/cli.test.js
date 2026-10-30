@@ -21,3 +21,13 @@ test('parseArgs rejects bad input with a readable error', () => {
   assert.throws(() => parseArgs(['--port', '70000']), UserError);
   assert.throws(() => parseArgs(['--bogus']), /Unknown option/);
 });
+
+test('parseArgs takes a model and an effort for new runs', () => {
+  const o = parseArgs(['--model', 'opus', '--effort=high']);
+  assert.equal(o.model, 'opus');
+  assert.equal(o.effort, 'high');
+  assert.equal(parseArgs(['--model=claude-sonnet-4-5']).model, 'claude-sonnet-4-5');
+  assert.throws(() => parseArgs(['--effort', 'turbo']), /--effort is one of/);
+  assert.throws(() => parseArgs(['--model', '--no-open']), UserError);
+  assert.throws(() => parseArgs(['--model']), UserError);
+});

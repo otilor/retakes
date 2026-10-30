@@ -62,6 +62,7 @@ test('loadConfig validates each field', () => {
     JSON.stringify({ agent: [] }),
     JSON.stringify({ agent: { args: '--model opus' } }),
     JSON.stringify({ agent: { model: ' ' } }),
+    JSON.stringify({ agent: { model: '--dangerously-skip-permissions' } }),
     JSON.stringify({ agent: { effort: 'turbo' } }),
   ];
   for (const text of bad) {

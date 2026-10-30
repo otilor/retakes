@@ -7,12 +7,27 @@ import { splitArgs } from './project.js';
 const isWin = process.platform === 'win32';
 
 let agentHelp = null;
+let probing = null;
 
 /** Read `claude --help` once, so runs only pass flags this Claude Code version supports. */
-export async function probeAgent(command = 'claude') {
+export function probeAgent(command = 'claude') {
   const [cmd, ...pre] = splitArgs(command);
-  agentHelp = await run(cmd, [...pre, '--help'], { timeout: 15000 }).catch((err) => err.stdout || '');
-  return agentHelp;
+  probing = run(cmd, [...pre, '--help'], { timeout: 15000 })
+    .catch((err) => err.stdout || '')
+    .then((text) => (agentHelp = text));
+  return probing;
+}
+
+/** Resolves once probeAgent has finished, so a run started early still gets the right flags. */
+export function agentReady() {
+  return probing || Promise.resolve();
+}
+
+/** Whether this Claude Code version takes a flag, or null before probeAgent has finished. */
+export function agentKnows(flag) {
+  if (agentHelp === null) return null;
+  const esc = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[\\s,])${esc}(?=[\\s,=]|$)`, 'm').test(agentHelp);
 }
 
 /** For tests: pretend `claude --help` printed this. */
@@ -57,7 +72,7 @@ export class AgentRun extends EventEmitter {
     if (!has('--model')) args.push('--model', this.config.model || 'sonnet');
     // Faster runs for small UI edits: less thinking, no MCP servers to start, no subagents or web
     // lookups. Only flags this Claude Code version knows (see probeAgent); agent.effort overrides.
-    const known = (flag) => !!(agentHelp && agentHelp.includes(flag));
+    const known = (flag) => !!agentKnows(flag);
     if (!has('--effort') && known('--effort')) args.push('--effort', this.config.effort || 'low');
     if (!has('--mcp-config') && !has('--strict-mcp-config') && known('--strict-mcp-config')) args.push('--strict-mcp-config');
     if (!has('--disallowedTools') && !has('--disallowed-tools') && known('--disallowedTools')) {
@@ -68,6 +83,10 @@ export class AgentRun extends EventEmitter {
   }
 
   start() {
+    if (this.stopped) {
+      this.promise = Promise.resolve({ ok: false, stopped: true, error: 'Stopped.' });
+      return this;
+    }
     const [cmd, ...pre] = splitArgs(this.config.command || 'claude');
     const args = [...pre, ...this.args()];
     const log = this.logFile ? fs.createWriteStream(this.logFile, { flags: 'a' }) : null;

@@ -3,9 +3,9 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { DevServer } from './devserver.js';
-import { AgentRun, probeAgent } from './agent.js';
+import { AgentRun, probeAgent, agentKnows, agentReady } from './agent.js';
 import { UserError, spawnGroup, stopTree, Tail, stripAnsi } from './proc.js';
-import { installCommand, filesToCopy } from './project.js';
+import { installCommand, filesToCopy, EFFORTS, MODELS, isModelName } from './project.js';
 import * as G from './git.js';
 import { takePrompt, refinePrompt, fixPrompt, continuePrompt } from './prompt.js';
 import { FlowRunner, loadFlows, saveFlow, deleteFlow, describeStep } from './flows.js';
@@ -19,7 +19,7 @@ const FLOW_SETTLE_MS = 1500;
  * git worktree with its own dev server and its own Claude Code session.
  */
 export class Retakes extends EventEmitter {
-  constructor(project, { log = () => {} } = {}) {
+  constructor(project, { log = () => {}, agent = {} } = {}) {
     super();
     this.p = project;
     this.log = log;
@@ -28,6 +28,12 @@ export class Retakes extends EventEmitter {
     fs.mkdirSync(this.logsDir, { recursive: true });
     fs.mkdirSync(project.takesDir, { recursive: true });
     this.state = this.loadState();
+    // The model and effort picked in the dock. --model and --effort on the command line replace the saved pick.
+    const saved = this.state.agent || {};
+    this.state.agent = {
+      model: agent.model || (isModelName(saved.model) ? saved.model : null),
+      effort: agent.effort || (EFFORTS.includes(saved.effort) ? saved.effort : null),
+    };
     this.takes = new Map();
     this.branch = null;
     this.flowsShotDir = path.join(project.stateDir, 'flows');
@@ -119,6 +125,8 @@ export class Retakes extends EventEmitter {
         runs: m.runs.length,
         canRetry: !t.run && m.runs.length > 0 && m.runs[m.runs.length - 1].ok === false,
         lastResult: lastResult(m),
+        model: m.model || null,
+        effort: m.effort || null,
         errors: errs(t.errors),
         flows: this.flowResults(t),
         switchable: !!t.server && t.server.status === 'ready',
@@ -126,7 +134,48 @@ export class Retakes extends EventEmitter {
       });
     }
     const flows = this.flows.map((f) => ({ id: f.id, name: f.name, start: f.start, steps: f.steps.length }));
-    return { project: { name: this.p.name, branch: this.branch }, versions, flows };
+    return { project: { name: this.p.name, branch: this.branch }, versions, flows, agent: this.agentInfo() };
+  }
+
+  // ---------- model and effort ----------
+
+  /** The model and effort the next run uses: the dock's pick, else the config, else Sonnet on low. */
+  agentChoice() {
+    const cfg = this.p.config.agent || {};
+    return {
+      model: this.state.agent.model || cfg.model || 'sonnet',
+      effort: this.state.agent.effort || cfg.effort || 'low',
+    };
+  }
+
+  agentInfo() {
+    const extra = (this.p.config.agent && this.p.config.agent.args) || [];
+    const has = (flag) => extra.some((a) => a === flag || a.startsWith(`${flag}=`));
+    const knows = agentKnows('--effort');
+    // agent.args with its own --model or --effort wins, so show that.
+    const choice = this.agentChoice();
+    const model = flagValue(extra, '--model') || choice.model;
+    const effort = flagValue(extra, '--effort') || choice.effort;
+    return {
+      model,
+      effort,
+      models: MODELS.includes(model) ? MODELS : [...MODELS, model],
+      // null until we know; false when this Claude Code has no --effort.
+      efforts: knows === null ? null : knows ? EFFORTS : false,
+      locked: { model: has('--model'), effort: has('--effort') },
+    };
+  }
+
+  setAgent({ model, effort } = {}) {
+    if (model !== undefined && !isModelName(model)) throw new UserError('Pick a model, like sonnet, haiku or opus.');
+    if (effort !== undefined && !EFFORTS.includes(effort)) throw new UserError(`Effort is one of ${EFFORTS.join(', ')}.`);
+    if (model !== undefined) this.state.agent.model = model;
+    if (effort !== undefined) this.state.agent.effort = effort;
+    const now = this.agentChoice();
+    this.log(`agent: new runs use ${now.model}, ${now.effort} effort`);
+    this.save();
+    this.changed();
+    return this.agentInfo();
   }
 
   flowResults(v) {
@@ -167,7 +216,14 @@ export class Retakes extends EventEmitter {
   // ---------- lifecycle ----------
 
   async start() {
-    probeAgent((this.p.config.agent && this.p.config.agent.command) || 'claude');
+    // Once we know whether this Claude Code takes --effort, the dock can offer it.
+    probeAgent((this.p.config.agent && this.p.config.agent.command) || 'claude').then(() => {
+      const cfg = this.p.config.agent || {};
+      if (agentKnows('--effort') === false && (this.state.agent.effort || cfg.effort)) {
+        this.log('agent: your Claude Code has no --effort, so the effort setting is ignored. Update Claude Code to use it.');
+      }
+      this.changed();
+    });
     this.branch = await G.currentBranch(this.p.gitRoot).catch(() => null);
     this.branchTimer = setInterval(async () => {
       const b = await G.currentBranch(this.p.gitRoot).catch(() => this.branch);
@@ -417,6 +473,7 @@ export class Retakes extends EventEmitter {
   runAgent(t, kind, text, promptText) {
     const m = t.meta;
     if (t.run) throw new UserError(`agent-${m.n} is still working. Wait for it, or stop it first.`);
+    const { model, effort } = this.agentChoice();
     const run = new AgentRun({
       cwd: m.appDir,
       prompt: promptText,
@@ -424,6 +481,8 @@ export class Retakes extends EventEmitter {
       resume: m.hasSession,
       config: {
         ...(this.p.config.agent || {}),
+        model,
+        effort,
         args: [...(this.p.rel ? ['--add-dir', m.dir] : []), ...((this.p.config.agent && this.p.config.agent.args) || [])],
       },
       logFile: this.logFile(m.id),
@@ -446,63 +505,73 @@ export class Retakes extends EventEmitter {
       m.sessionId = sid;
       this.save();
     });
-    run.start();
-    run.done().then(async (res) => {
-      t.run = null;
-      if (run.sessionSeen) {
-        m.hasSession = true;
-        m.sessionId = run.sessionSeen;
-      } else if (!m.hasSession) {
-        // Claude Code refuses a --session-id it has seen before, so the next run gets a fresh one.
-        m.sessionId = crypto.randomUUID();
-      }
-      entry.ok = res.ok;
-      entry.cost = res.cost || 0;
-      m.cost = Math.round(((m.cost || 0) + entry.cost) * 10000) / 10000;
-      if (!this.takes.has(m.id)) return;
-      if (res.ok) {
-        entry.result = clip(res.result || '', 600);
-        let sha = null;
-        let commitError = null;
-        try {
-          sha = await G.commitAll(m.dir, commitMessage(m, kind, text), m.copied);
-        } catch (err) {
-          commitError = err.message;
-          this.log(`agent-${m.n}: couldn't commit its work`, err.message);
+    // Wait for the `claude --help` probe, so a run started right after launch still gets --effort.
+    agentReady()
+      .then(() => {
+        // What this run really got: agent.args can name its own, and older Claude Codes have no --effort.
+        const args = run.args();
+        entry.model = m.model = flagValue(args, '--model');
+        entry.effort = m.effort = flagValue(args, '--effort');
+        this.save();
+        this.changed();
+        return run.start().done();
+      })
+      .then(async (res) => {
+        t.run = null;
+        if (run.sessionSeen) {
+          m.hasSession = true;
+          m.sessionId = run.sessionSeen;
+        } else if (!m.hasSession) {
+          // Claude Code refuses a --session-id it has seen before, so the next run gets a fresh one.
+          m.sessionId = crypto.randomUUID();
         }
-        entry.commit = sha;
-        t.agent = { status: 'done', step: null, error: null, startedAt: null };
-        t.errors.clear();
-        this.log(`agent-${m.n}: done${sha || commitError ? '' : ', no changes'}`);
-        if (commitError) {
-          this.notice('error', `agent-${m.n} finished, but its work couldn't be committed. See the terminal.`, { version: m.id });
-        } else if (sha) {
-          this.notice('success', `agent-${m.n} is done`, { version: m.id, action: 'view' });
+        entry.ok = res.ok;
+        entry.cost = res.cost || 0;
+        m.cost = Math.round(((m.cost || 0) + entry.cost) * 10000) / 10000;
+        if (!this.takes.has(m.id)) return;
+        if (res.ok) {
+          entry.result = clip(res.result || '', 600);
+          let sha = null;
+          let commitError = null;
+          try {
+            sha = await G.commitAll(m.dir, commitMessage(m, kind, text), m.copied);
+          } catch (err) {
+            commitError = err.message;
+            this.log(`agent-${m.n}: couldn't commit its work`, err.message);
+          }
+          entry.commit = sha;
+          t.agent = { status: 'done', step: null, error: null, startedAt: null };
+          t.errors.clear();
+          this.log(`agent-${m.n}: done${sha || commitError ? '' : ', no changes'}`);
+          if (commitError) {
+            this.notice('error', `agent-${m.n} finished, but its work couldn't be committed. See the terminal.`, { version: m.id });
+          } else if (sha) {
+            this.notice('success', `agent-${m.n} is done`, { version: m.id, action: 'view' });
+          } else {
+            this.notice('warning', `agent-${m.n} finished without changing anything`, { version: m.id });
+          }
+          this.flowsAfterRun(t);
         } else {
-          this.notice('warning', `agent-${m.n} finished without changing anything`, { version: m.id });
+          entry.error = res.error;
+          entry.stopped = !!res.stopped;
+          t.agent = { status: res.stopped ? 'stopped' : 'failed', step: null, error: res.error, startedAt: null };
+          // Keep whatever it got done, so a follow-up can build on it.
+          try {
+            entry.commit = await G.commitAll(m.dir, `${commitMessage(m, kind, text)} (unfinished)`, m.copied);
+          } catch {
+            /* nothing to keep */
+          }
+          if (res.stopped) {
+            this.log(`agent-${m.n}: stopped`);
+            this.notice('info', `Stopped agent-${m.n}`, { version: m.id });
+          } else {
+            this.log(`agent-${m.n}: failed`, res.error);
+            this.notice('error', `agent-${m.n} hit a problem: ${clip(firstLine(res.error), 90)}`, { version: m.id, action: 'details' });
+          }
         }
-        this.flowsAfterRun(t);
-      } else {
-        entry.error = res.error;
-        entry.stopped = !!res.stopped;
-        t.agent = { status: res.stopped ? 'stopped' : 'failed', step: null, error: res.error, startedAt: null };
-        // Keep whatever it got done, so a follow-up can build on it.
-        try {
-          entry.commit = await G.commitAll(m.dir, `${commitMessage(m, kind, text)} (unfinished)`, m.copied);
-        } catch {
-          /* nothing to keep */
-        }
-        if (res.stopped) {
-          this.log(`agent-${m.n}: stopped`);
-          this.notice('info', `Stopped agent-${m.n}`, { version: m.id });
-        } else {
-          this.log(`agent-${m.n}: failed`, res.error);
-          this.notice('error', `agent-${m.n} hit a problem: ${clip(firstLine(res.error), 90)}`, { version: m.id, action: 'details' });
-        }
-      }
-      this.save();
-      this.changed();
-    });
+        this.save();
+        this.changed();
+      });
   }
 
   takeOrThrow(id) {
@@ -801,4 +870,11 @@ function firstLine(s) {
 function clip(s, n) {
   s = String(s || '').trim();
   return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+
+/** The value given to a flag in an argument list (`--flag v` or `--flag=v`), or null. */
+function flagValue(args, flag) {
+  const i = args.findIndex((x) => x === flag || x.startsWith(`${flag}=`));
+  if (i < 0) return null;
+  return args[i].includes('=') ? args[i].slice(flag.length + 1) : args[i + 1] || null;
 }

@@ -3,7 +3,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { detectProject } from './project.js';
+import { detectProject, EFFORTS, isModelName } from './project.js';
 import { Retakes } from './retakes.js';
 import { Hub } from './hub.js';
 import { UserError, findPort, portFree } from './proc.js';
@@ -29,6 +29,8 @@ ${bold('Usage')}
 ${bold('Options')}
   --port <n>           Port to open the app on (default 4300)
   --host <host>        Address to listen on (default 127.0.0.1)
+  --model <name>       Model for new runs: haiku, sonnet (default), opus or a full model id
+  --effort <level>     Effort for new runs: ${EFFORTS.join(', ')} (default low)
   --no-open            Don't open the browser
   --yes                With clean: don't ask first
   -h, --help           Show this help
@@ -40,8 +42,11 @@ ${bold('Config')} (optional, retakes.config.json in your app's folder)
     "dev": "npm run dev -- --port {port}",   ${dim('// only for dev servers other than Vite and Next.js')}
     "setup": "npm ci",                       ${dim('// runs in each new take')}
     "copy": [".env.local"],                  ${dim('// files copied into each take (default: .env*)')}
-    "agent": { "model": "haiku" }            ${dim('// sonnet by default; haiku or opus also work')}
+    "agent": { "model": "haiku", "effort": "medium" }  ${dim('// sonnet on low effort by default')}
   }
+
+  You can also switch the model and effort from the dock, in the New take panel.
+  The pick is remembered for the app; --model and --effort replace it at start.
 `;
 
 export function parseArgs(argv) {
@@ -62,6 +67,15 @@ export function parseArgs(argv) {
       if (!Number.isInteger(p) || p < 1 || p > 65535) throw new UserError('--port needs a port number.');
       out.port = p;
     } else if (a === '--host' || a.startsWith('--host=')) out.host = val();
+    else if (a === '--model' || a.startsWith('--model=')) {
+      const m = val();
+      if (!isModelName(m)) throw new UserError('--model needs a model name, like sonnet, haiku or opus.');
+      out.model = m;
+    } else if (a === '--effort' || a.startsWith('--effort=')) {
+      const e = val();
+      if (!EFFORTS.includes(e)) throw new UserError(`--effort is one of ${EFFORTS.join(', ')}.`);
+      out.effort = e;
+    }
     else if (a === 'start' || a === 'clean') out.cmd = a;
     else throw new UserError(`Unknown option: ${a}. Run retakes --help.`);
   }
@@ -131,7 +145,7 @@ async function start(opts) {
     const tool = project.devMode.kind === 'next' ? 'next dev' : 'vite';
     console.log(dim(`Your "dev" script doesn't start with ${tool}, so Retakes runs ${tool} directly. Set "dev" in retakes.config.json if it needs more.`));
   }
-  const retakes = new Retakes(project, { log });
+  const retakes = new Retakes(project, { log, agent: { model: opts.model, effort: opts.effort } });
   const hub = new Hub(retakes, { port, host, dockFile: DOCK_FILE, log });
   await hub.listen();
   const shownHost = host === '127.0.0.1' || host === '0.0.0.0' ? 'localhost' : host;
