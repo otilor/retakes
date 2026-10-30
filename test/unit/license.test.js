@@ -95,9 +95,12 @@ test('refresh turns Pro off for a revoked or deleted key, and skips the network 
   t += DAY + 1;
   answer = [200, { status: 'revoked' }];
   assert.equal((await lic.refresh()).active, false);
+  answer = [200, { status: 'granted' }];
+  assert.equal((await lic.refresh({ force: true })).active, true);
   answer = [404, { detail: 'Not found' }];
   await lic.refresh({ force: true });
   assert.equal(lic.data.status, 'revoked');
+  assert.equal(lic.active, false);
 });
 
 test('a key past its expiry date is not active', async () => {
@@ -132,4 +135,74 @@ test('without a Polar organization, keys cannot be checked', async () => {
 test('maskKey keeps only the ends', () => {
   assert.equal(maskKey('ABCDEFGHIJKL'), 'ABCD…IJKL');
   assert.equal(maskKey('short'), '••••');
+});
+
+test('refresh never undoes activate or deactivate run in another terminal', async () => {
+  let t = 1_000 * DAY;
+  const { make } = setup(
+    {
+      activate: () => [200, { id: 'a', license_key: { status: 'granted' } }],
+      validate: () => [200, { status: 'granted' }],
+      deactivate: () => [204, undefined],
+    },
+    { now: () => t }
+  );
+  const hub = make();
+  await hub.activate('KEY-00001111');
+  await make().deactivate();
+  t += DAY + 1;
+  assert.equal((await hub.refresh()).active, false);
+  assert.equal(hub.data, null);
+});
+
+test('a failed deactivate keeps the key so the slot can still be freed', async () => {
+  let up = true;
+  const { home, make } = setup({
+    activate: () => [200, { id: 'a', license_key: { status: 'granted' } }],
+    deactivate: () => (up ? [204, undefined] : [503, { detail: 'down' }]),
+  });
+  const lic = make();
+  await lic.activate('KEY-00001111');
+  up = false;
+  await assert.rejects(lic.deactivate(), /couldn't free/);
+  assert.ok(fs.existsSync(path.join(home, 'license.json')));
+  up = true;
+  assert.equal(await lic.deactivate(), true);
+});
+
+test('activating the same key again reuses the activation; a new key frees the old one', async () => {
+  const { p, make } = setup({
+    activate: (b) => [200, { id: `act-${b.key}`, license_key: { status: 'granted' } }],
+    validate: () => [200, { status: 'granted' }],
+    deactivate: () => [204, undefined],
+  });
+  const lic = make();
+  await lic.activate('KEY-00001111');
+  await lic.activate('KEY-00001111');
+  assert.equal(p.calls.filter((c) => c.action === 'activate').length, 1);
+  await lic.activate('KEY-22223333');
+  assert.deepEqual(p.calls.at(-1), { action: 'deactivate', body: { organization_id: 'org-1', key: 'KEY-00001111', activation_id: 'act-KEY-00001111' } });
+  assert.equal(lic.data.activationId, 'act-KEY-22223333');
+});
+
+test('the license file is private even if it was loosened', async () => {
+  const { home, make } = setup({ activate: () => [200, { id: 'a', license_key: { status: 'granted' } }] });
+  const file = path.join(home, 'license.json');
+  fs.writeFileSync(file, '{}', { mode: 0o644 });
+  await make().activate('KEY-00001111');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
+
+test('listeners hear when a week offline turns Pro off', async () => {
+  let t = 1_000 * DAY;
+  const { make } = setup({ activate: () => [200, { id: 'a', license_key: { status: 'granted' } }] }, { now: () => t });
+  const lic = make();
+  await lic.activate('KEY-00001111');
+  let heard = 0;
+  lic.onChange(() => heard++);
+  t += 8 * DAY;
+  await lic.refresh();
+  assert.equal(heard, 1);
+  await lic.refresh();
+  assert.equal(heard, 1);
 });

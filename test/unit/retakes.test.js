@@ -64,4 +64,5 @@ test('several takes at once needs Pro, and is capped', async () => {
   const pro = new Retakes(project(), { license: { active: true, onChange: () => () => {} } });
   assert.equal(pro.snapshot().pro.active, true);
   await assert.rejects(pro.createTakes({ prompt: 'Bigger button', count: 4 }), /1 to 3/);
+  await assert.rejects(pro.createTakes({ prompt: 'Bigger button', count: 'abc' }), /1 to 3/);
 });

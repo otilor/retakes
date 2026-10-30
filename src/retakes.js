@@ -329,9 +329,9 @@ export class Retakes extends EventEmitter {
 
   /** Start several takes of one request at once (Pro). Each one is asked for a different approach. */
   async createTakes({ prompt, element, count = 1 }) {
-    count = Number(count) || 1;
-    if (count === 1) return [await this.createTake({ prompt, element })];
+    count = count === undefined || count === null ? 1 : Number(count);
     if (!Number.isInteger(count) || count < 1 || count > MAX_BATCH) throw new UserError(`Pick 1 to ${MAX_BATCH} takes.`);
+    if (count === 1) return [await this.createTake({ prompt, element })];
     if (!this.pro) throw new UserError(`${count} takes at once is part of Retakes Pro. Run one take, or get Pro at ${PRO_URL}`);
     const first = await this.createTake({ prompt, element });
     const out = [first];

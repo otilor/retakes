@@ -1022,6 +1022,10 @@ function Composer({ agent, pro, servedTake, picked, setPicked, onRepick, onDone 
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [count, setCount] = useState(1);
+  const proOn = !!(pro && pro.active);
+  useEffect(() => {
+    if (!proOn) setCount(1);
+  }, [proOn]);
   const ref = useRef(null);
   useEffect(() => {
     const t = setTimeout(() => ref.current && ref.current.focus(), 30);
@@ -1298,6 +1302,10 @@ function Compare({ versions, pro, onClose }) {
   const frames = useRef([]);
   const path = location.pathname + location.search + location.hash;
   const canAdd = sides.length < MAX_PANES;
+  const proOn = !!(pro && pro.active);
+  useEffect(() => {
+    if (!proOn) setSides((s) => (s.length > 2 ? s.slice(0, 2) : s));
+  }, [proOn]);
 
   useEffect(() => {
     const prev = document.documentElement.style.overflow;
@@ -1330,7 +1338,7 @@ function Compare({ versions, pro, onClose }) {
 
   const setSide = (i, id) => setSides((s) => s.map((x, j) => (j === i ? id : x)));
   const addPane = () => {
-    if (!pro || !pro.active) return proToast(`Comparing more than two`, pro);
+    if (!proOn) return proToast(`Comparing more than two`, pro);
     const unused = switchable.find((v) => !sides.includes(v.id));
     setSides((s) => [...s, unused ? unused.id : switchable[switchable.length - 1].id]);
   };

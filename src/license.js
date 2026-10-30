@@ -27,6 +27,7 @@ export class License {
     this.fetch = fetchFn;
     this.data = this.read();
     this.listeners = new Set();
+    this.wasActive = this.active;
   }
 
   read() {
@@ -46,7 +47,14 @@ export class License {
     } else {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       fs.writeFileSync(this.file, JSON.stringify(d, null, 2), { mode: 0o600 });
+      // writeFileSync's mode only applies to new files.
+      fs.chmodSync(this.file, 0o600);
     }
+    this.changed();
+  }
+
+  changed() {
+    this.wasActive = this.active;
     for (const fn of this.listeners) fn();
   }
 
@@ -85,15 +93,15 @@ export class License {
         body: JSON.stringify({ organization_id: this.org, ...body }),
         signal: AbortSignal.timeout(10_000),
       });
+      res = { status: res.status, text: await res.text() };
     } catch (err) {
       const e = new UserError(`Couldn't reach the license server (${err.message}). Check your connection and try again.`);
       e.offline = true;
       throw e;
     }
-    const text = await res.text();
     let json = null;
     try {
-      json = text ? JSON.parse(text) : null;
+      json = res.text ? JSON.parse(res.text) : null;
     } catch {
       /* not JSON */
     }
@@ -104,6 +112,15 @@ export class License {
   async activate(key) {
     key = String(key || '').trim();
     if (!key) throw new UserError('Paste your license key: retakes activate <key>');
+    const prev = this.read();
+    // Activating the same key again reuses this machine's activation instead of taking another slot.
+    if (prev && prev.key === key && prev.activationId) {
+      const v = await this.call('validate', { key, activation_id: prev.activationId });
+      if (v.status >= 200 && v.status < 300 && v.json && (v.json.status || 'granted') === 'granted') {
+        this.write({ ...prev, status: 'granted', expiresAt: v.json.expires_at || null, checkedAt: this.now() });
+        return this.info();
+      }
+    }
     let activationId = null;
     let lk;
     const act = await this.call('activate', { key, label: os.hostname().slice(0, 100) || 'retakes' });
@@ -123,26 +140,36 @@ export class License {
     }
     const status = lk.status || 'granted';
     if (status !== 'granted') throw new UserError(`That key is ${status}. If you think that's wrong, reply to your receipt email.`);
+    // A different key replaces the old one, so free the old key's slot on this machine.
+    if (prev && prev.activationId && (prev.key !== key || prev.activationId !== activationId)) {
+      await this.call('deactivate', { key: prev.key, activation_id: prev.activationId }).catch(() => {});
+    }
     this.write({ key, activationId, status, expiresAt: lk.expires_at || null, checkedAt: this.now() });
     return this.info();
   }
 
   /** Re-check the stored key. Offline keeps the cached answer; a revoked or unknown key turns Pro off. */
   async refresh({ force = false } = {}) {
-    const d = this.data;
-    if (!d) return this.info();
-    if (!force && this.now() - (d.checkedAt || 0) < DAY) return this.info();
-    try {
-      const v = await this.call('validate', { key: d.key, ...(d.activationId ? { activation_id: d.activationId } : {}) });
-      if (v.status === 404) this.write({ ...d, status: 'revoked', checkedAt: this.now() });
-      else if (v.status >= 200 && v.status < 300 && v.json) {
-        this.write({ ...d, status: v.json.status || 'granted', expiresAt: v.json.expires_at || null, checkedAt: this.now() });
+    // `retakes activate` or `deactivate` may have run in another terminal since this process started.
+    const d = (this.data = this.read());
+    if (d && (force || this.now() - (d.checkedAt || 0) >= DAY)) {
+      try {
+        const v = await this.call('validate', { key: d.key, ...(d.activationId ? { activation_id: d.activationId } : {}) });
+        const now = this.read();
+        const same = now && now.key === d.key && now.activationId === d.activationId;
+        if (!same) this.data = now;
+        else if (v.status === 404) this.write({ ...now, status: 'revoked', checkedAt: this.now() });
+        else if (v.status >= 200 && v.status < 300 && v.json) {
+          this.write({ ...now, status: v.json.status || 'granted', expiresAt: v.json.expires_at || null, checkedAt: this.now() });
+        }
+        // Any other answer (a 5xx, a rate limit) is treated like being offline.
+      } catch (err) {
+        // Offline, or no organization in this build: keep the cached answer.
+        if (!(err instanceof UserError)) throw err;
       }
-      // Any other answer (a 5xx, a rate limit) is treated like being offline.
-    } catch (err) {
-      // Offline, or no organization in this build: keep the cached answer.
-      if (!(err instanceof UserError)) throw err;
     }
+    // Pro can also end without a write, when the week offline runs out.
+    if (this.active !== this.wasActive) this.changed();
     return this.info();
   }
 
@@ -151,7 +178,11 @@ export class License {
     const d = this.data;
     if (!d) return false;
     if (d.activationId) {
-      await this.call('deactivate', { key: d.key, activation_id: d.activationId }).catch(() => {});
+      // Keep the key until Polar confirms, or this machine's slot stays taken with no way to free it.
+      const r = await this.call('deactivate', { key: d.key, activation_id: d.activationId });
+      if (r.status !== 404 && (r.status < 200 || r.status >= 300)) {
+        throw new UserError(`The license server couldn't free this machine (${detail(r.json) || r.status}). Try again in a minute.`);
+      }
     }
     this.write(null);
     return true;

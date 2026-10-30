@@ -250,8 +250,11 @@ async function licenseCmd(opts) {
   }
   const info = await license.refresh({ force: true });
   if (info.active) console.log(`${blue('✔')} Retakes Pro is on (${info.key}).`);
-  else if (info.key) console.log(`Retakes Pro is off: the key ${info.key} is ${info.status === 'granted' ? 'not confirmed in the last week' : info.status}. Run \`retakes license\` online, or get a new key at ${PRO_URL}`);
-  else console.log(`Retakes Pro isn't on here. Get a key at ${PRO_URL}, then run \`retakes activate <key>\`.`);
+  else if (info.key) {
+    const expired = info.expiresAt && Date.parse(info.expiresAt) <= Date.now();
+    const why = expired ? 'expired' : info.status === 'granted' ? 'not confirmed in the last week' : info.status;
+    console.log(`Retakes Pro is off: the key ${info.key} is ${why}. Run \`retakes license\` online, or get a new key at ${PRO_URL}`);
+  } else console.log(`Retakes Pro isn't on here. Get a key at ${PRO_URL}, then run \`retakes activate <key>\`.`);
 }
 
 function ask(q) {
