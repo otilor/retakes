@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta property="og:title" content="Retakes: try several Claude Code takes on your running app">
+<meta property="og:description" content="Point at part of your app, ask Claude Code for a change, flip between takes on the same URL and keep the best. Try it in your browser.">
+<meta property="og:url" content="https://otilor.github.io/retakes/">
+<meta name="color-scheme" content="light dark">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+<title>Retakes Playground</title>
+<meta name="description" content="Try Retakes in your browser: point at a page, ask Claude Code for a change, try another take, flip between them and keep the best.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=JetBrains+Mono:wght@500&family=Instrument+Serif&display=swap">
+<style>
+/* Layout: a short slate-style header, then one big browser window that is the demo, with a coach strip on top. */
+:root {
+  --bg: #f3f4f9; --surface: #ffffff; --fg: #141826; --muted: #586074; --line: rgba(20,24,38,.12);
+  --accent: #2b45e0; --accent-soft: rgba(43,69,224,.10); --chrome: #e7e9f1;
+  --display: "Schibsted Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0e1016; --surface: #171a23; --fg: #eef0f6; --muted: #9aa1b2; --line: rgba(255,255,255,.12);
+  --accent: #8c9cff; --accent-soft: rgba(140,156,255,.14); --chrome: #232733; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0e1016; --surface: #171a23; --fg: #eef0f6; --muted: #9aa1b2; --line: rgba(255,255,255,.12);
+  --accent: #8c9cff; --accent-soft: rgba(140,156,255,.14); --chrome: #232733; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 28px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 18px; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 14px 24px; }
+.brand { display: flex; align-items: center; gap: 10px; font: 800 22px/1 var(--display); letter-spacing: -.01em; }
+.brand svg { width: 26px; height: 26px; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.brand .wa { stroke: var(--accent); } .brand .wb { stroke: var(--fg); }
+.top h1 { margin: 10px 0 0; font: 700 clamp(24px, 3.4vw, 34px)/1.12 var(--display); letter-spacing: -.02em; text-wrap: balance; max-width: 24ch; }
+.top p { margin: 6px 0 0; color: var(--muted); max-width: 60ch; }
+.cta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cmd { display: inline-flex; align-items: center; gap: 10px; height: 40px; padding: 0 6px 0 14px; border-radius: 10px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); font: 500 14px/1 var(--mono); }
+.cmd span::before { content: "$ "; color: var(--muted); }
+.cmd button, .gh { height: 30px; padding: 0 10px; border: 0; border-radius: 7px; background: var(--accent-soft); color: var(--accent); font: 600 13px/1 var(--body); cursor: pointer; }
+.gh { display: inline-flex; align-items: center; height: 40px; padding: 0 14px; border-radius: 10px; background: var(--fg); color: var(--bg); text-decoration: none; }
+.cmd button:focus-visible, .gh:focus-visible, .coach button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* coach */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
+.coach { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 8px); z-index: 25; box-shadow: inset 0 0 0 1px var(--line), 0 10px 24px -18px rgba(10,14,30,.4); display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 14px; border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+.slate { flex: none; font: 500 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); padding: 6px 8px; border-radius: 6px; background: var(--accent-soft); font-variant-numeric: tabular-nums; }
+.coach-text { flex: 1 1 260px; min-width: 0; }
+.coach-text b { font: 700 16px/1.3 var(--display); display: block; }
+.coach-text span { color: var(--muted); font-size: 14px; }
+.steps { display: flex; gap: 4px; }
+.steps i { width: 18px; height: 4px; border-radius: 2px; background: var(--line); }
+.steps i.done { background: var(--accent); }
+.coach .skip { border: 0; background: none; color: var(--muted); font: 500 13px var(--body); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+/* browser window */
+.win { position: relative; border-radius: 14px; overflow: hidden; background: var(--chrome); box-shadow: 0 0 0 1px var(--line), 0 30px 60px -30px rgba(10,14,30,.45); }
+.bar { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; }
+.dots { display: flex; gap: 6px; } .dots i { width: 11px; height: 11px; border-radius: 50%; background: var(--line); }
+.url { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 8px; background: var(--surface); color: var(--muted); font: 500 12.5px/1 var(--mono); overflow: hidden; white-space: nowrap; }
+.url b { color: var(--fg); font-weight: 500; }
+.vtag { margin-left: auto; padding: 3px 7px; border-radius: 5px; font: 600 11px/1 var(--body); color: #11131a; background: #d5d8e1; transition: background .2s; }
+.stage { position: relative; height: min(660px, 76vh); min-height: 520px; background: #fff; }
+.scroller { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; }
+.flash { position: absolute; inset: 0; pointer-events: none; background: #fff; opacity: 0; }
+.flash.go { animation: flash .35s ease-out; }
+@keyframes flash { 0% { opacity: .55; } 100% { opacity: 0; } }
+
+/* ---------- the sample app ("your app"): fixed light look, it's someone's product ---------- */
+.app { --a-bg: #ffffff; --a-fg: #1a1d24; --a-muted: #626a7a; --a-line: #e4e6ec; --a-brand: #1f7a5c; --a-card: #ffffff;
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--a-fg); background: var(--a-bg); min-height: 100%; padding-bottom: 110px; transition: background .4s; }
+.app * { transition: background .4s, color .4s, border-color .4s, transform .4s, box-shadow .4s, border-radius .4s; }
+.nav { display: flex; align-items: center; gap: 18px; padding: 14px 24px; border-bottom: 1px solid var(--a-line); }
+.logo { font-weight: 800; letter-spacing: -.01em; display: flex; align-items: center; gap: 7px; }
+.logo i { width: 16px; height: 16px; border-radius: 4px 9px 4px 9px; background: var(--a-brand); }
+.nav a { color: var(--a-muted); text-decoration: none; font-size: 14px; }
+.nav .me { margin-left: auto; display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--a-muted); }
+.nav .me i { width: 24px; height: 24px; border-radius: 50%; background: #f2c38f; display: grid; place-items: center; font: 700 11px/1 system-ui; font-style: normal; color: #5a3410; }
+.hero { text-align: center; padding: 44px 24px 26px; }
+.hero h2 { margin: 0; font: 800 34px/1.12 system-ui, sans-serif; letter-spacing: -.02em; text-wrap: balance; }
+.hero p { margin: 10px auto 0; color: var(--a-muted); max-width: 46ch; }
+.period { display: inline-flex; margin-top: 18px; padding: 3px; border-radius: 9px; background: #f1f2f5; font-size: 13px; }
+.period span { padding: 5px 12px; border-radius: 7px; } .period span:first-child { background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; max-width: 900px; margin: 0 auto; padding: 8px 24px 0; align-items: start; }
+.plan { position: relative; padding: 22px; border: 1px solid var(--a-line); border-radius: 12px; background: var(--a-card); display: grid; gap: 12px; }
+.plan h3 { margin: 0; font: 700 15px/1.2 system-ui, sans-serif; }
+.price { font: 800 32px/1 system-ui, sans-serif; letter-spacing: -.02em; }
+.price small { font: 500 13px system-ui; color: var(--a-muted); letter-spacing: 0; }
+.plan ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13.5px; color: var(--a-muted); }
+.plan li::before { content: "✓  "; color: var(--a-brand); font-weight: 700; }
+.plan .go { height: 38px; border: 1px solid var(--a-line); border-radius: 8px; background: #fff; color: var(--a-fg); font: 600 14px system-ui; cursor: default; }
+.plan.pro .go { background: var(--a-brand); color: #fff; border-color: transparent; }
+.flag { display: none; position: absolute; top: -11px; left: 22px; padding: 4px 9px; border-radius: 999px; font: 700 11px/1 system-ui; letter-spacing: .02em; }
+.faq { max-width: 700px; margin: 50px auto 0; padding: 0 24px; display: grid; gap: 10px; }
+.faq h4 { margin: 0 0 4px; font: 700 18px system-ui; }
+.faq details { padding: 14px 16px; border: 1px solid var(--a-line); border-radius: 10px; font-size: 14px; }
+.faq summary { font-weight: 600; cursor: default; }
+.faq p { margin: 8px 0 0; color: var(--a-muted); }
+.foot { text-align: center; margin-top: 40px; color: var(--a-muted); font-size: 13px; }
+
+/* take: bold Pro */
+.app[data-v="pro-bold"] .plan.pro { background: #2b1b66; color: #fff; border-color: #2b1b66; transform: scale(1.045); box-shadow: 0 24px 50px -18px rgba(43,27,102,.6); }
+.app[data-v="pro-bold"] .plan.pro ul, .app[data-v="pro-bold"] .plan.pro .price small { color: #cfc6ff; }
+.app[data-v="pro-bold"] .plan.pro li::before { color: #a8f0c8; }
+.app[data-v="pro-bold"] .plan.pro .go { background: #fff; color: #2b1b66; }
+.app[data-v="pro-bold"] .plan.pro .flag { display: block; background: #ffd34d; color: #2b1b66; }
+/* take: elegant Pro */
+.app[data-v="pro-elegant"] { --a-bg: #faf8f3; --a-card: #fffdf8; --a-line: #e8e1d3; --a-brand: #8a6a2f; }
+.app[data-v="pro-elegant"] .hero h2 { font: 400 46px/1.05 "Instrument Serif", Georgia, serif; letter-spacing: 0; }
+.app[data-v="pro-elegant"] .plan h3 { font: 400 24px/1 "Instrument Serif", Georgia, serif; }
+.app[data-v="pro-elegant"] .price { font: 400 44px/1 "Instrument Serif", Georgia, serif; }
+.app[data-v="pro-elegant"] .plan.pro { border: 1.5px solid #b08d57; box-shadow: 0 0 0 5px rgba(176,141,87,.12); }
+.app[data-v="pro-elegant"] .plan.pro .flag { display: block; background: #b08d57; color: #fffdf8; }
+.app[data-v="pro-elegant"] .period { background: #f0ebe0; }
+/* take: friendly soft */
+.app[data-v="soft"] .plan { border-radius: 22px; border-color: transparent; }
+.app[data-v="soft"] .plan.hobby { background: #e9f7ef; } .app[data-v="soft"] .plan.pro { background: #efeafe; } .app[data-v="soft"] .plan.team { background: #fff0e4; }
+.app[data-v="soft"] .plan .go { border-radius: 999px; border-color: transparent; }
+.app[data-v="soft"] .plan.pro .go { background: #6b4fd8; }
+.app[data-v="soft"] .hero h2 { color: #2c2350; }
+/* take: friendly bold */
+.app[data-v="loud"] .hero h2 mark { background: linear-gradient(transparent 58%, #ffe066 58%); color: inherit; }
+.app[data-v="loud"] .price { font-size: 52px; }
+.app[data-v="loud"] .plan { border-width: 2px; border-color: var(--a-fg); border-radius: 4px; box-shadow: 5px 5px 0 var(--a-fg); }
+.app[data-v="loud"] .plan .go { border: 2px solid var(--a-fg); border-radius: 4px; }
+.app[data-v="loud"] .plan.pro { background: #ffe066; }
+.app[data-v="loud"] .plan.pro .go { background: var(--a-fg); }
+.app mark { background: none; color: inherit; }
+
+/* pick mode */
+.picking [data-pick] { cursor: crosshair; }
+.hl { position: absolute; pointer-events: none; border: 2px solid #8c9cff; background: rgba(140,156,255,.12); border-radius: 6px; z-index: 5; transition: all .08s; }
+.hl span { position: absolute; top: -24px; left: -2px; padding: 3px 7px; border-radius: 6px; background: #1c1f27; color: #f3f4f8; font: 500 11.5px/1 var(--mono); white-space: nowrap; }
+
+/* ---------- the dock (Ink, copied from the real dock's look) ---------- */
+.dk { --d-bg: rgba(22,24,31,.92); --d-pop: #1c1f27; --d-fg: #f3f4f8; --d-muted: #a9afbd; --d-line: rgba(255,255,255,.12);
+  --d-accent: #8c9cff; --d-press: rgba(255,255,255,.14); --d-hover: rgba(255,255,255,.08); --d-num: #11131a; --d-ok: #4cc38a;
+  --d-field: rgba(255,255,255,.06); --d-fline: rgba(255,255,255,.14);
+  --hm: #d5d8e1; --h1: #8fa2ff; --h2: #ff8fb8; --h3: #ffa25e;
+  font: 500 13px/18px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--d-fg); }
+.dock { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 16px; background: var(--d-bg); -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5); box-shadow: 0 0 0 1px rgba(0,0,0,.3), 0 14px 34px -12px rgba(8,10,18,.55), inset 0 1px 0 rgba(255,255,255,.07); max-width: calc(100% - 16px); }
+.bi { flex: none; position: relative; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 12px; background: none; color: inherit; display: grid; place-items: center; cursor: pointer; outline: none; }
+.bi:hover { background: var(--d-hover); }
+.bi:focus-visible, .now:focus-visible, .pb:focus-visible, .seg button:focus-visible, .sug:focus-visible { box-shadow: 0 0 0 2px var(--d-pop), 0 0 0 4px var(--d-accent); }
+.bi.on { background: var(--d-press); }
+.bi[disabled] { opacity: .38; cursor: default; background: none; }
+.mk { width: 20px; height: 20px; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.mk .wa { stroke: var(--d-accent); } .mk .wb { stroke: var(--d-fg); }
+.ic { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.now { flex: none; height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 8px; border: 0; border-radius: 20px; background: none; color: inherit; white-space: nowrap; cursor: pointer; font: inherit; outline: none; }
+.now:hover { background: var(--d-hover); }
+.now b { font-weight: 600; }
+.st { width: 8px; height: 8px; border-radius: 50%; background: var(--d-ok); } .st.busy { background: var(--d-accent); }
+.sep { flex: none; width: 1px; height: 24px; margin: 0 4px; background: var(--d-line); }
+.tiles { display: flex; gap: 2px; }
+.tile.viewing::after { content: ""; position: absolute; bottom: -3px; left: 18px; width: 4px; height: 4px; border-radius: 50%; background: var(--d-fg); }
+.av { position: relative; flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; color: var(--d-num); font: 700 13px/1 system-ui, sans-serif; }
+.now .av { width: 22px; height: 22px; font-size: 11px; }
+.av svg { width: 15px; height: 15px; fill: none; stroke: var(--d-num); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.now .av svg { width: 12px; height: 12px; }
+.hm { background: var(--hm); } .h1 { background: var(--h1); } .h2 { background: var(--h2); } .h3 { background: var(--h3); }
+.spin { position: absolute; inset: -5px; border-radius: 50%; border: 2px solid var(--d-accent); border-right-color: transparent; border-bottom-color: transparent; animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+[data-tip]::before { content: attr(data-tip); position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); z-index: 5; pointer-events: none; white-space: nowrap; padding: 6px 9px; border-radius: 9px; background: var(--d-pop); color: var(--d-fg); box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 24px 48px -16px rgba(0,0,0,.6); font: 500 12px/16px system-ui, sans-serif; opacity: 0; transition: opacity .12s; }
+[data-tip]:hover::before { opacity: 1; transition-delay: .25s; }
+.has-pop [data-tip]::before { display: none; }
+.pulse { animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(140,156,255,.0); } 50% { box-shadow: 0 0 0 5px rgba(140,156,255,.55); } }
+.pop { position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%); z-index: 11; width: 360px; max-width: calc(100% - 24px); max-height: calc(100% - 96px); overflow: auto; padding: 14px; border-radius: 16px; background: var(--d-pop); box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 24px 48px -16px rgba(0,0,0,.6); animation: rise .18s ease-out; }
+@keyframes rise { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }
+.pop.still, .toast.still { animation: none; }
+@media (min-width: 900px) { .pop.side { left: auto; right: 16px; transform: none; bottom: 76px; } }
+.ph { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ph h2 { margin: 0; font: 600 14px/20px system-ui, sans-serif; }
+.pill { margin-left: auto; padding: 3px 8px; border-radius: 999px; font: 600 11px/14px system-ui; background: var(--d-field); color: var(--d-muted); white-space: nowrap; }
+.pill.ok { color: var(--d-ok); } .pill.busy { color: var(--d-accent); }
+.chip { display: inline-flex; max-width: 100%; margin: 0 0 8px; padding: 4px 9px; border-radius: 8px; background: var(--d-field); box-shadow: inset 0 0 0 1px var(--d-fline); font: 500 12px/16px ui-monospace, Menlo, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.field { display: block; width: 100%; min-height: 60px; resize: none; padding: 9px 11px; border: 0; border-radius: 10px; background: var(--d-field); box-shadow: inset 0 0 0 1px var(--d-fline); color: var(--d-fg); outline: none; font: 500 13px/18px system-ui, sans-serif; }
+.field:focus { box-shadow: inset 0 0 0 1px var(--d-accent); }
+.field::placeholder { color: var(--d-muted); }
+.sugs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.sug { padding: 5px 9px; border: 0; border-radius: 999px; background: rgba(140,156,255,.16); color: #c9d1ff; font: 500 12px/16px system-ui; cursor: pointer; outline: none; }
+.sug:hover { background: rgba(140,156,255,.26); }
+.opts { display: grid; gap: 4px; margin-top: 10px; }
+.opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--d-muted); font-size: 12px; }
+.seg { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--d-field); }
+.seg button { padding: 4px 7px; border: 0; border-radius: 6px; background: none; font: 500 12px system-ui; color: var(--d-muted); cursor: pointer; outline: none; }
+.seg button[aria-pressed="true"] { background: var(--d-press); color: var(--d-fg); }
+.row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 10px; }
+.pb { height: 32px; padding: 0 12px; border: 0; border-radius: 10px; background: var(--d-field); color: var(--d-fg); font: 600 12.5px/1 system-ui, sans-serif; cursor: pointer; outline: none; white-space: nowrap; box-shadow: inset 0 0 0 1px var(--d-fline); }
+.pb:hover { background: var(--d-press); }
+.pb.primary { background: var(--d-accent); color: var(--d-num); box-shadow: none; }
+.pb[disabled] { opacity: .45; cursor: default; }
+.hint { margin: 8px 0 0; color: var(--d-muted); font-size: 11.5px; line-height: 16px; }
+.quote { margin: 0 0 10px; padding: 8px 10px; border-radius: 10px; background: var(--d-field); font-size: 13px; }
+.quote small { display: block; margin-top: 3px; color: var(--d-muted); font-size: 11.5px; }
+.log { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; font-size: 12.5px; color: var(--d-muted); }
+.log li { display: flex; gap: 8px; align-items: center; animation: rise .2s ease-out; }
+.log li::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--d-line); }
+.log li.cur::before { width: 10px; height: 10px; border: 2px solid var(--d-accent); border-right-color: transparent; background: none; animation: spin .9s linear infinite; }
+.log li.ok::before { background: var(--d-ok); }
+.toast { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 12; display: flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 999px; background: #1c1f27; color: #f3f4f8; box-shadow: 0 18px 40px -16px rgba(0,0,0,.6); font: 500 13px/1.2 system-ui; white-space: nowrap; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; animation: drop .25s ease-out; }
+.toast::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: #4cc38a; }
+@keyframes drop { from { opacity: 0; translate: 0 -8px; } }
+
+/* compare */
+.cmp { position: absolute; inset: 0; z-index: 9; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; background: #c9ccd6; }
+.pane { position: relative; overflow: auto; background: #fff; }
+.pane .app { padding-bottom: 60px; }
+.pane .nav a { display: none; }
+.pane .plans { grid-template-columns: 1fr; }
+.ptag { position: sticky; top: 8px; z-index: 2; margin: 8px 0 -36px 8px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px 4px 4px; border-radius: 999px; background: #1c1f27; color: #f3f4f8; font: 600 12px/1 system-ui; }
+.ptag .av { width: 20px; height: 20px; font-size: 10px; }
+
+/* end card */
+.end { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px; background: rgba(14,16,22,.62); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); animation: rise .3s ease-out; }
+.end-card { width: min(440px, 100%); padding: 26px; border-radius: 18px; background: var(--surface); color: var(--fg); box-shadow: 0 30px 60px -20px rgba(0,0,0,.5); display: grid; gap: 14px; }
+.end-card h3 { margin: 0; font: 700 24px/1.15 var(--display); letter-spacing: -.01em; text-wrap: balance; }
+.end-card p { margin: 0; color: var(--muted); }
+.end-card .cta { margin-top: 4px; }
+.end-card .again { justify-self: start; border: 0; background: none; padding: 0; color: var(--muted); font: 500 13px var(--body); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+.fine { color: var(--muted); font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.fine kbd { font: 500 12px var(--mono); padding: 1px 5px; border-radius: 4px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+
+@media (max-width: 720px) {
+  .plans { grid-template-columns: 1fr; max-width: 420px; }
+  .nav a { display: none; }
+  .hero h2 { font-size: 27px; }
+  .app[data-v="pro-elegant"] .hero h2 { font-size: 36px; }
+  .bi { width: 36px; height: 36px; }
+  .now { padding: 0 8px 0 6px; } .now b { display: none; }
+  .tile.viewing::after { left: 16px; }
+  .cmp { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+  .stage { min-height: 560px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="wa" d="M3.6 12a8.4 8.4 0 0 1 15.9-3.8"/><path class="wa" d="M20.2 4.6v3.9h-3.9"/><path class="wb" d="M20.4 12a8.4 8.4 0 0 1-15.9 3.8"/><path class="wb" d="M3.8 19.4v-3.9h3.9"/></svg>Retakes</div>
+      <h1>Try several Claude Code takes on your running app. Keep the best.</h1>
+      <p>A hands-on demo on a sample pricing page. Point at part of the page, ask for a change, try another take, flip between them and keep one.</p>
+    </div>
+    <div class="cta">
+      <div class="cmd"><span id="cmdText">npx retakes</span><button type="button" id="copyBtn">Copy</button></div>
+      <a class="gh" href="https://github.com/otilor/retakes" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </header>
+
+  <section class="coach" aria-live="polite">
+    <span class="slate" id="slate">Take 1</span>
+    <div class="coach-text"><b id="coachTitle"></b><span id="coachText"></span></div>
+    <div class="steps" id="steps" aria-hidden="true"></div>
+    <button type="button" class="skip" id="skipBtn">Skip step</button>
+  </section>
+
+  <div class="win">
+    <div class="bar">
+      <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="url"><span>localhost:4300<b>/pricing</b></span><span class="vtag" id="vtag">main</span></div>
+    </div>
+    <div class="stage" id="stage">
+      <div class="scroller" id="scroller"></div>
+      <div class="flash" id="flash"></div>
+      <div class="dk" id="dk"></div>
+    </div>
+  </div>
+
+  <p class="fine"><span>Everything here runs in your browser. Real takes come from Claude Code on your own machine and take about a minute; this demo is sped up.</span><span>Keys: <kbd>P</kbd> point, <kbd>C</kbd> compare, <kbd>Esc</kbd> close</span></p>
+</div>
+
+<template id="appTpl">
+  <div class="app">
+    <nav class="nav" data-pick="Header" data-sel="nav.site-nav">
+      <span class="logo"><i></i>Fieldnote</span>
+      <a>Features</a><a>Pricing</a><a>Docs</a>
+      <span class="me"><i>AL</i>Signed in as Ada</span>
+    </nav>
+    <section class="hero" data-pick="PricingHero" data-sel="section.hero">
+      <h2 data-t="title">Plans that grow with your <mark>notebook</mark></h2>
+      <p data-t="sub">Capture field notes, photos and audio in one place. Start free and upgrade when your team joins.</p>
+      <div class="period"><span>Monthly</span><span>Yearly · save 20%</span></div>
+    </section>
+    <div class="plans">
+      <article class="plan hobby" data-pick="PlanCard" data-sel="article.plan.hobby">
+        <span class="flag"></span>
+        <h3>Hobby</h3><div class="price">$0 <small>/ month</small></div>
+        <ul><li>3 notebooks</li><li>Offline sync on one device</li><li>Photo notes</li></ul>
+        <button class="go" tabindex="-1">Start free</button>
+      </article>
+      <article class="plan pro" data-pick="PlanCard" data-sel="article.plan.pro">
+        <span class="flag" data-t="flag">Most popular</span>
+        <h3>Pro</h3><div class="price">$12 <small>/ month</small></div>
+        <ul><li>Unlimited notebooks</li><li>Sync on every device</li><li>Audio notes and transcripts</li><li>Map view</li></ul>
+        <button class="go" tabindex="-1">Try Pro free</button>
+      </article>
+      <article class="plan team" data-pick="PlanCard" data-sel="article.plan.team">
+        <span class="flag"></span>
+        <h3>Team</h3><div class="price">$29 <small>/ user / month</small></div>
+        <ul><li>Everything in Pro</li><li>Shared notebooks</li><li>Roles and audit log</li></ul>
+        <button class="go" tabindex="-1">Talk to us</button>
+      </article>
+    </div>
+    <section class="faq" data-pick="Faq" data-sel="section.faq">
+      <h4>Questions</h4>
+      <details open><summary>Can I switch plans later?</summary><p>Yes. Changes apply right away and we prorate the difference.</p></details>
+      <details><summary>Does it work without signal?</summary><p>Every plan works offline. Notes sync when you're back online.</p></details>
+      <details><summary>Do you offer research discounts?</summary><p>Universities and nonprofits get 40% off Pro and Team.</p></details>
+    </section>
+    <p class="foot">Fieldnote · a sample app for this demo</p>
+  </div>
+</template>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const stage = $('#stage'), scroller = $('#scroller'), dk = $('#dk');
+
+  // Each prompt family has two takes, so "Try another" gives a different approach.
+  const FAMILIES = {
+    pro: {
+      takes: ['pro-bold', 'pro-elegant'],
+      logs: [
+        ['Setting up its own copy', 'Reading src/pages/Pricing.jsx', 'Reading src/components/PlanCard.jsx', 'Editing src/components/PlanCard.jsx', 'Editing src/styles/pricing.css', 'Saving the take'],
+        ['Setting up its own copy', 'Reading src/components/PlanCard.jsx', 'Looking through the code', 'Editing src/styles/theme.css', 'Editing src/components/PlanCard.jsx', 'Saving the take'],
+      ],
+      said: ['Made Pro the dark featured card with a Most popular badge and a slight lift.', 'Went quieter: serif headings, a warm paper background and a gold outline on Pro.'],
+    },
+    friendly: {
+      takes: ['soft', 'loud'],
+      logs: [
+        ['Setting up its own copy', 'Reading src/pages/Pricing.jsx', 'Editing src/pages/Pricing.jsx', 'Editing src/styles/pricing.css', 'Saving the take'],
+        ['Setting up its own copy', 'Looking through the code', 'Editing src/pages/Pricing.jsx', 'Editing src/styles/pricing.css', 'Saving the take'],
+      ],
+      said: ['Softer cards in mint, lavender and peach, pill buttons, a friendlier headline.', 'Bolder: big prices, chunky outlines and a highlighted headline word.'],
+    },
+  };
+  const TEXT = {
+    'pro-elegant': { flag: 'Recommended' },
+    soft: { title: 'Pick a plan, change it anytime', sub: 'Every plan works offline, and you can switch whenever you like. No surprises.' },
+    loud: { title: 'Notes that keep up with your <mark>fieldwork</mark>' },
+  };
+  const SUGS = { pro: 'Make the Pro plan stand out', friendly: 'Make the pricing feel friendlier' };
+  const COLORS = ['hm', 'h1', 'h2', 'h3'];
+
+  const STEPS = [
+    { title: 'Point at something', text: 'Press P or click the pointer in the dock, then click part of the page, like the Pro card.' },
+    { title: 'Say what you want', text: 'Pick a suggestion or type your own request, then press Enter.' },
+    { title: 'Watch it land live', text: 'Claude Code works in its own copy of your project. The change shows up on this page as it edits.' },
+    { title: 'Try another take', text: 'Not sure about it? Click Try another for a different approach to the same request.' },
+    { title: 'Flip between takes', text: 'Click the tiles in the dock. Same URL, same scroll, still signed in.' },
+    { title: 'Compare side by side', text: 'Press C or click the split-screen button to see two takes together.' },
+    { title: 'Keep the best', text: 'View the take you like, then click Keep. It merges into your branch.' },
+  ];
+
+  let S;
+  function reset() {
+    S = { step: 0, mainV: '', viewing: 'main', takes: [], pop: null, mode: null, picked: null, family: null, flips: 0,
+          model: 'sonnet', effort: 'low', toast: null, ended: false, compare: false };
+    scroller.innerHTML = '';
+    scroller.append($('#appTpl').content.cloneNode(true));
+    applyVariant($('.app', scroller), '');
+    scroller.scrollTop = 0;
+    render();
+  }
+
+  // ---------- the sample app ----------
+  const originals = new WeakMap();
+  function applyVariant(app, v) {
+    app.dataset.v = v || '';
+    app.querySelectorAll('[data-t]').forEach((el) => {
+      if (!originals.has(el)) originals.set(el, el.innerHTML);
+      const alt = TEXT[v] && TEXT[v][el.dataset.t];
+      el.innerHTML = alt || originals.get(el);
+    });
+  }
+  function variantOf(id) {
+    if (id === 'main') return S.mainV;
+    const t = S.takes.find((x) => x.id === id);
+    return t && t.landed ? t.v : S.mainV;
+  }
+  function showView(flash = true) {
+    applyVariant($('.app', scroller), variantOf(S.viewing));
+    if (flash) { const f = $('#flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go'); }
+  }
+
+  // ---------- pick mode ----------
+  let hl = null;
+  function startPick() {
+    if (S.ended || S.compare) return;
+    S.mode = 'pick'; S.pop = null; stage.classList.add('picking'); render();
+  }
+  function stopPick() { S.mode = null; stage.classList.remove('picking'); if (hl) { hl.remove(); hl = null; } }
+  function pickTarget(e) { return e.target.closest && e.target.closest('[data-pick]'); }
+  function showHl(el) {
+    if (!hl) { hl = document.createElement('div'); hl.className = 'hl'; hl.innerHTML = '<span></span>'; stage.append(hl); }
+    const r = el.getBoundingClientRect(), s = stage.getBoundingClientRect();
+    Object.assign(hl.style, { left: r.left - s.left - 3 + 'px', top: r.top - s.top - 3 + 'px', width: r.width + 6 + 'px', height: r.height + 6 + 'px' });
+    hl.firstChild.textContent = el.dataset.pick + ' · ' + el.dataset.sel.split('.').slice(0, 1).join('') + (el.dataset.sel.includes('plan.') ? '.' + el.dataset.sel.split('.').pop() : '');
+    if (r.top - s.top < 30) hl.firstChild.style.top = '4px'; else hl.firstChild.style.top = '-24px';
+  }
+  scroller.addEventListener('mousemove', (e) => { if (S.mode !== 'pick') return; const t = pickTarget(e); if (t) showHl(t); });
+  scroller.addEventListener('scroll', () => { if (hl) { hl.remove(); hl = null; } });
+  scroller.addEventListener('click', (e) => {
+    if (S.mode !== 'pick') return;
+    const t = pickTarget(e); if (!t) return;
+    e.preventDefault();
+    S.picked = { name: t.dataset.pick, sel: t.dataset.sel };
+    stopPick();
+    S.pop = { kind: 'compose' };
+    if (S.step === 0) S.step = 1;
+    render();
+    setTimeout(() => { const f = $('#prompt'); if (f) f.focus({ preventScroll: true }); }, 30);
+  });
+
+  // ---------- takes ----------
+  function familyFor(text) {
+    if (/friend|soft|warm|playful|fun|bold|color|colour|bright|round/i.test(text)) return 'friendly';
+    if (/pro\b|stand|popular|highlight|emphas|feature|premium|elegan/i.test(text)) return 'pro';
+    return S.picked && /pro|hobby|team/.test(S.picked.sel) ? 'pro' : 'friendly';
+  }
+  function startTake(prompt, family) {
+    const n = S.takes.length + 1;
+    const used = S.takes.filter((t) => t.family === family).length;
+    const k = used % 2;
+    const t = { id: 'agent-' + n, n, prompt, family, v: FAMILIES[family].takes[k], log: FAMILIES[family].logs[k], said: FAMILIES[family].said[k],
+                line: 0, done: false, landed: false, model: S.model, effort: S.effort, picked: S.picked };
+    S.takes.push(t);
+    S.viewing = t.id; showView(false);
+    S.pop = { kind: 'take', id: t.id };
+    toast(t.id + ' is on it. Its tile shows progress.');
+    if (S.step < 2) S.step = 2;
+    render();
+    const tick = () => {
+      if (!S.takes.includes(t)) return;
+      t.line++;
+      if (t.line === t.log.length - 2 && !t.landed) {
+        t.landed = true;
+        if (S.viewing === t.id) {
+          showView(true);
+          const el = t.picked && scroller.querySelector(t.picked.sel);
+          if (el && stage.clientWidth < 900) scroller.scrollTo({ top: el.offsetTop - 24, behavior: 'smooth' });
+        }
+      }
+      if (t.line >= t.log.length) { t.done = true; toast(t.id + ' is done. You\'re viewing it.'); onTakeDone(t); render(); return; }
+      render();
+      setTimeout(tick, 850);
+    };
+    setTimeout(tick, 900);
+  }
+  function onTakeDone(t) {
+    if (S.step === 2 && t.n === 1) { S.step = 3; S.pop = { kind: 'take', id: t.id }; }
+    else if (S.step <= 3 && t.n >= 2) { S.step = 4; S.pop = null; }
+  }
+  function view(id) {
+    if (id === S.viewing) return;
+    S.viewing = id; showView(true);
+    if (S.step === 4 && ++S.flips >= 3) S.step = 5;
+    render();
+  }
+  function keep(id) {
+    const t = S.takes.find((x) => x.id === id);
+    S.mainV = t.v; S.takes = []; S.viewing = 'main'; S.pop = null; showView(true);
+    toast('Kept ' + id + '. It\'s merged into main.');
+    S.step = 7; render();
+    setTimeout(() => { S.ended = true; render(); }, 1400);
+  }
+
+  function toast(msg) {
+    S.toast = msg;
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => { S.toast = null; render(); }, 2600);
+  }
+
+  // ---------- compare ----------
+  function openCompare() {
+    if (S.takes.length === 0 || S.ended) { toast('Start a take first, then compare it with main.'); render(); return; }
+    stopPick(); S.pop = null; S.compare = true;
+    const done = S.takes.filter((t) => t.landed);
+    const a = done.length >= 2 ? done[done.length - 2] : { id: 'main' };
+    const b = done[done.length - 1] || S.takes[S.takes.length - 1];
+    const cmp = document.createElement('div'); cmp.className = 'cmp'; cmp.id = 'cmp';
+    const panes = [a, b].map((v) => {
+      const p = document.createElement('div'); p.className = 'pane';
+      const idx = v.id === 'main' ? 0 : v.n;
+      p.innerHTML = `<span class="ptag"><span class="av ${COLORS[Math.min(idx, 3)]}">${idx || ''}</span>${v.id}</span>`;
+      if (!idx) p.querySelector('.av').innerHTML = BRANCH;
+      p.append($('#appTpl').content.cloneNode(true));
+      applyVariant($('.app', p), variantOf(v.id));
+      cmp.append(p); return p;
+    });
+    let lock = false;
+    panes.forEach((p, i) => p.addEventListener('scroll', () => {
+      if (lock) return; lock = true;
+      const o = panes[1 - i]; o.scrollTop = p.scrollTop / Math.max(1, p.scrollHeight - p.clientHeight) * (o.scrollHeight - o.clientHeight);
+      requestAnimationFrame(() => { lock = false; });
+    }));
+    stage.append(cmp);
+    render();
+  }
+  function closeCompare() {
+    const c = $('#cmp'); if (c) c.remove();
+    S.compare = false;
+    if (S.step === 5) S.step = 6;
+    render();
+  }
+
+  // ---------- render the dock ----------
+  const MARK = '<svg class="mk" viewBox="0 0 24 24"><path class="wa" d="M3.6 12a8.4 8.4 0 0 1 15.9-3.8"/><path class="wa" d="M20.2 4.6v3.9h-3.9"/><path class="wb" d="M20.4 12a8.4 8.4 0 0 1-15.9 3.8"/><path class="wb" d="M3.8 19.4v-3.9h3.9"/></svg>';
+  const BRANCH = '<svg viewBox="0 0 24 24"><circle cx="7" cy="6" r="2.2"/><circle cx="7" cy="18" r="2.2"/><circle cx="17" cy="8" r="2.2"/><path d="M7 8.2v7.6M17 10.2c0 3.6-3.4 4.6-8 5.6"/></svg>';
+  const I = {
+    compare: '<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="M12 4.5v15"/></svg>',
+    prompt: '<svg class="ic" viewBox="0 0 24 24"><path d="M5 4l5.6 15 2.2-6.4L19.2 10z"/><path d="M14 14l5 5"/></svg>',
+    keep: '<svg class="ic" viewBox="0 0 24 24"><path d="M12 15V4"/><path d="M7.5 8.5L12 4l4.5 4.5"/><path d="M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"/></svg>',
+    close: '<svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const label = (id) => id;
+  function av(id, spin) {
+    if (id === 'main') return `<span class="av hm">${BRANCH}</span>`;
+    const t = S.takes.find((x) => x.id === id);
+    return `<span class="av ${COLORS[Math.min(t.n, 3)]}">${t.n}${spin ? '<span class="spin"></span>' : ''}</span>`;
+  }
+  const pulse = (cond) => (cond ? ' pulse' : '');
+
+  function render() {
+    // coach
+    const step = Math.min(S.step, STEPS.length - 1);
+    const st = S.ended ? { title: 'That\'s Retakes', text: 'Now try it on your own app.' } : STEPS[step];
+    $('#slate').textContent = S.ended ? 'Wrap' : 'Take ' + (step + 1) + ' / ' + STEPS.length;
+    $('#coachTitle').textContent = st.title; $('#coachText').textContent = st.text;
+    $('#steps').innerHTML = STEPS.map((_, i) => `<i class="${i < S.step || S.ended ? 'done' : ''}"></i>`).join('');
+    $('#skipBtn').hidden = S.ended || S.step === 2 || S.step >= 7;
+
+    const viewingTake = S.takes.find((t) => t.id === S.viewing);
+    const vt = $('#vtag'); vt.textContent = S.viewing;
+    vt.style.background = getComputedStyle(dk).getPropertyValue(S.viewing === 'main' ? '--hm' : '--' + COLORS[Math.min(viewingTake.n, 3)]);
+
+    const busy = (t) => !t.done;
+    const anyBusy = viewingTake && busy(viewingTake);
+    let html = `<div class="dock${S.pop ? ' has-pop' : ''}" role="toolbar" aria-label="Retakes">
+      <button type="button" class="bi" data-tip="Retakes" aria-label="Retakes">${MARK}</button>
+      <button type="button" class="now" data-act="now" aria-label="Viewing ${S.viewing}">${av(S.viewing)}<b>${S.viewing}</b><span class="st${anyBusy ? ' busy' : ''}"></span></button>
+      <span class="sep"></span>
+      <div class="tiles">
+        <button type="button" class="bi tile${S.viewing === 'main' ? ' viewing' : ''}${pulse(S.step === 4)}" data-view="main" data-tip="main · your branch" aria-label="main">${av('main')}</button>
+        ${S.takes.map((t) => `<button type="button" class="bi tile${S.viewing === t.id ? ' viewing' : ''}${pulse(S.step === 4 && S.viewing !== t.id)}" data-view="${t.id}" data-tip="${t.id} · ${t.done ? 'ready' : 'working'}" aria-label="${t.id}">${av(t.id, busy(t))}</button>`).join('')}
+      </div>
+      <span class="sep"></span>
+      <button type="button" class="bi${S.compare ? ' on' : ''}${pulse(S.step === 5 && !S.compare)}" data-act="compare" data-tip="Compare side by side · C" aria-label="Compare side by side">${I.compare}</button>
+      <button type="button" class="bi${S.mode === 'pick' || (S.pop && S.pop.kind === 'compose') ? ' on' : ''}${pulse(S.step === 0 && S.mode !== 'pick')}" data-act="prompt" data-tip="Point and prompt · P" aria-label="Point and prompt">${I.prompt}</button>
+      <button type="button" class="bi${pulse(S.step === 6 && viewingTake && viewingTake.done)}" data-act="keep" data-tip="${viewingTake ? 'Keep ' + viewingTake.id : 'Switch to a take to keep it'}" aria-label="Keep" ${viewingTake && viewingTake.done ? '' : 'disabled'}>${I.keep}</button>
+    </div>`;
+
+    if (S.compare) {
+      html += `<div class="pop" style="width:auto;padding:6px 6px 6px 14px;display:flex;align-items:center;gap:10px;bottom:72px"><span>Scroll either side, they move together</span><button type="button" class="pb primary" data-act="closecmp">Done comparing</button></div>`;
+    } else if (S.pop && S.pop.kind === 'compose') html += composeHtml();
+    else if (S.pop && S.pop.kind === 'take') html += takeHtml(S.takes.find((t) => t.id === S.pop.id));
+    else if (S.pop && S.pop.kind === 'keep') html += keepHtml(S.takes.find((t) => t.id === S.pop.id));
+    else if (S.pop && S.pop.kind === 'main') html += `<div class="pop"><div class="ph">${av('main')}<h2>main</h2><span class="pill ok">your branch</span></div><p class="hint" style="margin:0">This is your app as it is in your checkout. Takes are separate copies until you keep one.</p></div>`;
+    if (S.mode === 'pick') html += `<div class="toast" style="background:#1c1f27">Click part of the page to point at it · Esc to cancel</div>`;
+    else if (S.toast) html += `<div class="toast">${esc(S.toast)}</div>`;
+    if (S.ended) html += `<div class="end"><div class="end-card">
+        <h3>Try it on your own app</h3>
+        <p>Run one command in a Vite or Next.js app with Claude Code signed in. Nothing gets added to your app or your build.</p>
+        <div class="cta"><div class="cmd"><span>npx retakes</span><button type="button" data-act="copy">Copy</button></div><a class="gh" href="https://github.com/otilor/retakes" target="_blank" rel="noopener">Star on GitHub</a></div>
+        <button type="button" class="again" data-act="restart">Play the demo again</button>
+      </div></div>`;
+    const popKey = S.compare ? 'cmp' : S.pop ? S.pop.kind + (S.pop.id || '') : '';
+    if (popKey && popKey === render.lastPop) html = html.replace('class="pop"', 'class="pop still"').replace('class="pop side"', 'class="pop side still"');
+    render.lastPop = popKey;
+    const toastKey = S.mode === 'pick' ? 'pick' : S.toast || '';
+    if (toastKey && toastKey === render.lastToast) html = html.replace('class="toast"', 'class="toast still"');
+    render.lastToast = toastKey;
+    const had = document.activeElement && document.activeElement.id === 'prompt';
+    dk.innerHTML = html;
+    const f = $('#prompt', dk);
+    if (f && S.draft) f.value = S.draft;
+    if (f && had) { f.focus({ preventScroll: true }); f.setSelectionRange(f.value.length, f.value.length); }
+  }
+
+  function composeHtml() {
+    const fam = S.picked && /plan/.test(S.picked.sel) ? ['pro', 'friendly'] : ['friendly', 'pro'];
+    const seg = (key, opts) => `<div class="seg">${opts.map(([v, l]) => `<button type="button" data-${key}="${v}" aria-pressed="${S[key] === v}">${l}</button>`).join('')}</div>`;
+    return `<div class="pop" role="dialog" aria-label="New take">
+      <div class="ph"><h2>${S.takes.length ? 'New take' : 'New take'}</h2></div>
+      ${S.picked ? `<div class="chip">${esc(S.picked.name)} · ${esc(S.picked.sel)}</div>` : '<p class="hint" style="margin:0 0 8px">No element picked. Describe it in words.</p>'}
+      <textarea id="prompt" class="field" placeholder="Make the search bar larger" aria-label="Describe the change"></textarea>
+      <div class="sugs">${fam.map((f) => `<button type="button" class="sug" data-sug="${f}">${SUGS[f]}</button>`).join('')}</div>
+      <div class="opts">
+        <div class="opt"><span>Model</span>${seg('model', [['haiku', 'Haiku'], ['sonnet', 'Sonnet'], ['opus', 'Opus']])}</div>
+        <div class="opt"><span>Effort</span>${seg('effort', [['low', 'Low'], ['medium', 'Med'], ['high', 'High']])}</div>
+      </div>
+      <div class="row"><button type="button" class="pb primary" data-act="start">Start agent</button></div>
+      <p class="hint">Claude Code works on a copy of your last commit, and you can watch it land live.</p>
+    </div>`;
+  }
+  function takeHtml(t) {
+    if (!t) return '';
+    const lines = t.log.slice(0, Math.min(t.line + 1, t.log.length));
+    const models = { haiku: 'Haiku', sonnet: 'Sonnet', opus: 'Opus' };
+    return `<div class="pop side" role="dialog" aria-label="${t.id}">
+      <div class="ph">${av(t.id)}<h2>${t.id}</h2><span class="pill ${t.done ? 'ok' : 'busy'}">${t.done ? 'Ready' : 'Working'}</span></div>
+      <div class="quote">${esc(t.prompt)}<small>${models[t.model]} · ${t.effort} effort${t.picked ? ' · ' + esc(t.picked.name) : ''}</small></div>
+      ${t.done ? `<p class="hint" style="margin:0 0 4px;font-size:12.5px;line-height:18px;color:#d7dbe6">${esc(t.said)}</p>` :
+        `<ul class="log">${lines.map((l, i) => `<li class="${i < t.line ? 'ok' : 'cur'}">${esc(l)}</li>`).join('')}</ul>`}
+      <div class="row">
+        ${S.viewing !== t.id ? `<button type="button" class="pb primary" data-view="${t.id}">View</button>` : ''}
+        <button type="button" class="pb${pulse(S.step === 3 && t.done)}" data-act="another" data-id="${t.id}" ${t.done ? '' : 'disabled'}>Try another</button>
+        <button type="button" class="pb" data-act="askkeep" data-id="${t.id}" ${t.done ? '' : 'disabled'}>Keep</button>
+      </div>
+    </div>`;
+  }
+  function keepHtml(t) {
+    return `<div class="pop" role="dialog" aria-label="Keep ${t.id}">
+      <div class="ph">${av(t.id)}<h2>Keep ${t.id}?</h2></div>
+      <p class="hint" style="margin:0;font-size:12.5px;line-height:18px">This merges ${t.id} into <b style="color:#f3f4f8">main</b>, the branch you have checked out. The other takes are discarded.</p>
+      <div class="row"><button type="button" class="pb" data-act="closepop">Cancel</button><button type="button" class="pb primary" data-act="keepnow" data-id="${t.id}">Keep ${t.id}</button></div>
+    </div>`;
+  }
+
+  function submit(text, fam) {
+    text = (text || '').trim(); if (!text) { const f = $('#prompt', dk); if (f) f.focus(); return; }
+    S.draft = '';
+    startTake(text, fam || familyFor(text));
+  }
+
+  dk.addEventListener('input', (e) => { if (e.target.id === 'prompt') S.draft = e.target.value; });
+  dk.addEventListener('keydown', (e) => {
+    if (e.target.id === 'prompt' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(e.target.value); }
+  });
+  dk.addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.view) { view(b.dataset.view); if (S.pop && S.pop.kind === 'take' && b.classList.contains('pb')) S.pop = null; render(); return; }
+    if (b.dataset.model) { S.model = b.dataset.model; render(); return; }
+    if (b.dataset.effort) { S.effort = b.dataset.effort; render(); return; }
+    if (b.dataset.sug) { submit(SUGS[b.dataset.sug], b.dataset.sug); return; }
+    switch (b.dataset.act) {
+      case 'prompt': S.mode === 'pick' ? (stopPick(), render()) : startPick(); break;
+      case 'compare': S.compare ? closeCompare() : openCompare(); break;
+      case 'closecmp': closeCompare(); break;
+      case 'now': S.pop = S.pop ? null : (S.viewing === 'main' ? { kind: 'main' } : { kind: 'take', id: S.viewing }); render(); break;
+      case 'start': submit($('#prompt', dk).value); break;
+      case 'another': { const t = S.takes.find((x) => x.id === b.dataset.id); S.picked = t.picked; startTake(t.prompt, t.family); break; }
+      case 'askkeep': S.pop = { kind: 'keep', id: b.dataset.id }; render(); break;
+      case 'keep': S.pop = { kind: 'keep', id: S.viewing }; render(); break;
+      case 'keepnow': keep(b.dataset.id); break;
+      case 'closepop': S.pop = null; render(); break;
+      case 'restart': reset(); break;
+      case 'copy': copy(b); break;
+    }
+  });
+  // A tile click also opens nothing else; clicking the page closes popovers.
+  scroller.addEventListener('click', () => { if (S.mode !== 'pick' && S.pop && S.pop.kind !== 'compose') { S.pop = null; render(); } });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.target.closest && e.target.closest('textarea, input')) { if (e.key === 'Escape') { S.pop = null; render(); } return; }
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === 'p' || e.key === 'P') { startPick(); }
+    else if (e.key === 'c' || e.key === 'C') { S.compare ? closeCompare() : openCompare(); }
+    else if (e.key === 'Escape') { if (S.mode === 'pick') stopPick(); if (S.compare) closeCompare(); S.pop = null; render(); }
+  });
+
+  $('#skipBtn').addEventListener('click', () => {
+    switch (S.step) {
+      case 0: S.picked = { name: 'PlanCard', sel: 'article.plan.pro' }; S.pop = { kind: 'compose' }; S.step = 1; stopPick(); render(); break;
+      case 1: submit(SUGS.pro, 'pro'); break;
+      case 3: { const t = S.takes[S.takes.length - 1]; S.picked = t.picked; startTake(t.prompt, t.family); break; }
+      case 4: S.step = 5; render(); break;
+      case 5: if (S.compare) closeCompare(); else { S.step = 6; render(); } break;
+      case 6: { const t = S.takes.filter((x) => x.done).pop(); if (t) keep(t.id); break; }
+    }
+  });
+
+  function copy(btn) {
+    const done = () => { const o = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => (btn.textContent = o), 1400); };
+    try {
+      navigator.clipboard.writeText('npx retakes').then(done, () => selectCmd(btn));
+    } catch { selectCmd(btn); }
+  }
+  function selectCmd(btn) {
+    const span = btn.parentElement.querySelector('span');
+    const r = document.createRange(); r.selectNodeContents(span);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }
+  $('#copyBtn').addEventListener('click', (e) => copy(e.currentTarget));
+
+  reset();
+})();
+</script>
+</body>
+</html>
