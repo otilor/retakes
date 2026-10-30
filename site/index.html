@@ -49,7 +49,7 @@ body { background: var(--bg); color: var(--fg); font: 15px/1.5 var(--body); -web
 
 /* coach */
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bg); }
-.coach { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 8px); z-index: 25; box-shadow: inset 0 0 0 1px var(--line), 0 10px 24px -18px rgba(10,14,30,.4); display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 14px; border-radius: 14px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+.coach { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 8px); z-index: 25; box-shadow: inset 0 0 0 1px var(--line), 0 10px 24px -18px rgba(10,14,30,.4); display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 14px; border-radius: 14px; background: var(--surface); }
 .slate { flex: none; font: 500 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); padding: 6px 8px; border-radius: 6px; background: var(--accent-soft); font-variant-numeric: tabular-nums; }
 .coach-text { flex: 1 1 260px; min-width: 0; }
 .coach-text b { font: 700 16px/1.3 var(--display); display: block; }
@@ -283,7 +283,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 
 <template id="appTpl">
   <div class="app">
-    <nav class="nav" data-pick="Header" data-sel="nav.site-nav">
+    <nav class="nav site-nav" data-pick="Header" data-sel="nav.site-nav">
       <span class="logo"><i></i>Fieldnote</span>
       <a>Features</a><a>Pricing</a><a>Docs</a>
       <span class="me"><i>AL</i>Signed in as Ada</span>
@@ -487,10 +487,11 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
   // ---------- compare ----------
   function openCompare() {
     if (S.takes.length === 0 || S.ended) { toast('Start a take first, then compare it with main.'); render(); return; }
-    stopPick(); S.pop = null; S.compare = true;
     const done = S.takes.filter((t) => t.landed);
+    if (!done.length) { toast(S.takes[0].id + ' is still working. Compare once it lands.'); render(); return; }
+    stopPick(); S.pop = null; S.compare = true;
     const a = done.length >= 2 ? done[done.length - 2] : { id: 'main' };
-    const b = done[done.length - 1] || S.takes[S.takes.length - 1];
+    const b = done[done.length - 1];
     const cmp = document.createElement('div'); cmp.className = 'cmp'; cmp.id = 'cmp';
     const panes = [a, b].map((v) => {
       const p = document.createElement('div'); p.className = 'pane';
@@ -655,7 +656,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
       case 'start': submit($('#prompt', dk).value); break;
       case 'another': { const t = S.takes.find((x) => x.id === b.dataset.id); S.picked = t.picked; startTake(t.prompt, t.family); break; }
       case 'askkeep': S.pop = { kind: 'keep', id: b.dataset.id }; render(); break;
-      case 'keep': S.pop = { kind: 'keep', id: S.viewing }; render(); break;
+      case 'keep': if (S.compare) closeCompare(); S.pop = { kind: 'keep', id: S.viewing }; render(); break;
       case 'keepnow': keep(b.dataset.id); break;
       case 'closepop': S.pop = null; render(); break;
       case 'restart': reset(); break;
