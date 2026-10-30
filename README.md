@@ -31,7 +31,8 @@ That starts your dev server behind a hub at **http://localhost:4300** and opens 
 - **Watch it land.** Each request runs in its own copy of your project, and edits appear live through hot reload.
 - **Switch in place.** Click a tile to view another take on the same URL, at the same scroll, still signed in.
 - **Try another.** Run the same request again for a different approach, or keep refining a take in the same Claude session.
-- **Compare.** Two versions side by side, scrolling together.
+- **Compare.** Two versions side by side, scrolling together (up to four with [Pro](#pro)).
+- **Three takes at once** ([Pro](#pro)). Ask once and get three different approaches to compare.
 - **Switch models and effort.** Pick Haiku, Sonnet or Opus right in the dock, and an effort level when your Claude Code supports `--effort`. Each take shows what it ran on, so you can try the same request on two models and compare.
 - **Fix errors in one click.** Takes that throw in the browser get a badge, and **Fix** sends the errors back to that take's agent.
 - **Flows.** Record a user journey once, and Retakes replays it with Playwright on every take to catch what broke.
@@ -46,7 +47,8 @@ That starts your dev server behind a hub at **http://localhost:4300** and opens 
 | Refine a take | Open its tile and type in **Ask agent-N**. It continues the same Claude session. |
 | Try another take | **Try another** reruns the request, asking for a different approach. |
 | Switch model or effort | In the **Ask for a change** panel, pick a model and (when your Claude Code supports it) an effort level. New runs use them, including follow-ups, Fix and Try another; Retakes remembers the pick for this app. |
-| Compare | Press **C**, or click the split-screen button. |
+| Compare | Press **C**, or click the split-screen button. With Pro, **Add** puts up to four versions on screen. |
+| Start three takes at once | With Pro, pick **3 at once** next to Takes in the **New take** panel. |
 | Fix errors | Click **Fix** on a badged tile. |
 | Record a flow | Press **F**, then **Record a flow**, and use the page the way you'd test it. **Add check** picks text that should be on the page. |
 | Keep one | **Keep** merges the take into the branch you have checked out. |
@@ -62,6 +64,9 @@ retakes --port 4400    # pick the hub's port
 retakes --no-open      # don't open the browser
 retakes --model opus --effort high   # start on another model and effort (replaces the dock's saved pick)
 retakes clean          # remove every take: its folder, its branch and saved state
+retakes activate <key> # turn on Retakes Pro on this machine
+retakes license        # show whether Pro is on
+retakes deactivate     # turn Pro off here and free the key for another machine
 ```
 
 Takes survive restarts. Stop with Ctrl+C and run `retakes` again to pick up where you left off.
@@ -90,6 +95,29 @@ Retakes has no API key of its own. Each request is one headless run of your own 
 
 > [!TIP]
 > Takes use **Sonnet** at low effort by default, tuned for quick UI edits. Switch to Haiku for lighter use, Opus for harder changes, or a higher effort when a change needs more thought, from the dock, with `--model`/`--effort`, or as the default in `"agent"` in the config. A pick in the dock wins over the config until you change it.
+
+## Pro
+
+Everything above is free. Retakes Pro adds:
+
+- **Three takes at once.** One prompt starts three agents, each asked for a noticeably different approach, so you pick from real options instead of rerolling one at a time.
+- **Compare up to four.** Put main and three takes on one screen, all scrolling together.
+- More on the way, included while you have Pro.
+
+| Plan | Price |
+| --- | --- |
+| **Founder** (first 50 buyers) | **$79 once**, Pro for life |
+| Pro | $12 a month or $99 a year |
+
+**[Get Founder](https://polar.sh/retakes)** · **[Get Pro](https://polar.sh/retakes)**
+
+You'll get a license key by email. Then run:
+
+```sh
+retakes activate <your key>
+```
+
+The key is checked once a day and keeps working offline for a week. Each key works on two machines; `retakes deactivate` frees one. Pro uses your own Claude Code like the free version, so three takes use about three times the usage of one.
 
 ## Flows
 

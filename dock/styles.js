@@ -237,11 +237,17 @@ button { font: inherit; color: inherit; }
 .cmp-bar .grow { flex: 1; }
 .check { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; cursor: pointer; }
 .cmp-panes { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; min-height: 0; }
+.cmp-panes.n3 { grid-template-columns: 1fr 1fr 1fr; }
+.cmp-panes.n4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.cmp-bar .side { display: inline-flex; align-items: center; gap: 2px; }
+.cmp-bar { overflow-x: auto; }
+.btn-i.sm { width: 24px; height: 24px; }
+.pro { margin-left: 5px; padding: 1px 5px; border-radius: 4px; font-size: 10px; font-weight: 600; letter-spacing: .02em; background: var(--accent); color: var(--num); vertical-align: 1px; }
 .pane { position: relative; display: flex; flex-direction: column; min-width: 0; background: #fff; }
 .pane-label { position: absolute; z-index: 1; bottom: 12px; left: 12px; display: flex; align-items: center; gap: 6px; padding: 4px 8px 4px 4px; border-radius: 999px; background: var(--pop); color: var(--fg); box-shadow: var(--sh-pop); font-weight: 600; font-size: 12px; pointer-events: none; }
 .pane iframe { flex: 1; width: 100%; height: 100%; border: 0; background: #fff; }
 .pane-wait { position: absolute; inset: 0; display: grid; place-items: center; color: #4b5364; font-size: 13px; }
-@media (max-width: 640px) { .cmp-panes { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } }
+@media (max-width: 640px) { .cmp-panes, .cmp-panes.n3, .cmp-panes.n4 { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: 1fr; } }
 
 @media (prefers-reduced-motion: reduce) {
   .dock, .pop, .pick-box, .rec { transition: none !important; animation: none !important; }

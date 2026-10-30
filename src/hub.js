@@ -268,8 +268,8 @@ export class Hub {
       const body = await readJson(req);
       const [a, id, action] = parts;
       if (a === 'takes' && !id) {
-        const take = await o.createTake({ prompt: body.prompt, element: cleanElement(body.element) });
-        return sendJson(res, 200, { take });
+        const takes = await o.createTakes({ prompt: body.prompt, element: cleanElement(body.element), count: body.count });
+        return sendJson(res, 200, { take: takes[0], takes });
       }
       if (a === 'takes' && id) {
         switch (action) {

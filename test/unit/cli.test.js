@@ -31,3 +31,10 @@ test('parseArgs takes a model and an effort for new runs', () => {
   assert.throws(() => parseArgs(['--model', '--no-open']), UserError);
   assert.throws(() => parseArgs(['--model']), UserError);
 });
+
+test('parseArgs reads the license commands', () => {
+  assert.deepEqual(parseArgs(['activate', 'KEY-1']), { cmd: 'activate', open: true, yes: false, key: 'KEY-1' });
+  assert.equal(parseArgs(['deactivate']).cmd, 'deactivate');
+  assert.equal(parseArgs(['license']).cmd, 'license');
+  assert.throws(() => parseArgs(['activate']), /license key/);
+});

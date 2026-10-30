@@ -8,9 +8,12 @@ import { UserError, spawnGroup, stopTree, Tail, stripAnsi } from './proc.js';
 import { installCommand, filesToCopy, EFFORTS, MODELS, isModelName } from './project.js';
 import * as G from './git.js';
 import { takePrompt, refinePrompt, fixPrompt, continuePrompt } from './prompt.js';
+import { PRO_URL } from './license.js';
 import { FlowRunner, loadFlows, saveFlow, deleteFlow, describeStep } from './flows.js';
 
 const MAX_ERRORS = 20;
+// Pro runs up to this many takes from one prompt.
+export const MAX_BATCH = 3;
 // Give hot reload a moment to apply the agent's last edits before replaying flows.
 const FLOW_SETTLE_MS = 1500;
 
@@ -19,10 +22,12 @@ const FLOW_SETTLE_MS = 1500;
  * git worktree with its own dev server and its own Claude Code session.
  */
 export class Retakes extends EventEmitter {
-  constructor(project, { log = () => {}, agent = {} } = {}) {
+  constructor(project, { log = () => {}, agent = {}, license = null } = {}) {
     super();
     this.p = project;
     this.log = log;
+    this.license = license;
+    this.offLicense = license ? license.onChange(() => this.changed()) : null;
     this.stateFile = path.join(project.stateDir, 'state.json');
     this.logsDir = path.join(project.stateDir, 'logs');
     fs.mkdirSync(this.logsDir, { recursive: true });
@@ -134,7 +139,17 @@ export class Retakes extends EventEmitter {
       });
     }
     const flows = this.flows.map((f) => ({ id: f.id, name: f.name, start: f.start, steps: f.steps.length }));
-    return { project: { name: this.p.name, branch: this.branch }, versions, flows, agent: this.agentInfo() };
+    return { project: { name: this.p.name, branch: this.branch }, versions, flows, agent: this.agentInfo(), pro: this.proInfo() };
+  }
+
+  // ---------- Pro ----------
+
+  get pro() {
+    return !!(this.license && this.license.active);
+  }
+
+  proInfo() {
+    return { active: this.pro, url: PRO_URL, maxBatch: MAX_BATCH };
   }
 
   // ---------- model and effort ----------
@@ -262,6 +277,7 @@ export class Retakes extends EventEmitter {
 
   async shutdown() {
     this.closed = true;
+    if (this.offLicense) this.offLicense();
     clearInterval(this.branchTimer);
     clearTimeout(this.emitTimer);
     const jobs = [this.main.server.stop()];
@@ -311,9 +327,29 @@ export class Retakes extends EventEmitter {
     };
   }
 
-  async createTake({ prompt, element, from }) {
-    let attempt = 1;
-    let takeOf = null;
+  /** Start several takes of one request at once (Pro). Each one is asked for a different approach. */
+  async createTakes({ prompt, element, count = 1 }) {
+    count = Number(count) || 1;
+    if (count === 1) return [await this.createTake({ prompt, element })];
+    if (!Number.isInteger(count) || count < 1 || count > MAX_BATCH) throw new UserError(`Pick 1 to ${MAX_BATCH} takes.`);
+    if (!this.pro) throw new UserError(`${count} takes at once is part of Retakes Pro. Run one take, or get Pro at ${PRO_URL}`);
+    const first = await this.createTake({ prompt, element });
+    const out = [first];
+    for (let i = 2; i <= count; i++) {
+      try {
+        out.push(await this.createTake({ prompt, element, group: { takeOf: first.id, attempt: i } }));
+      } catch (err) {
+        // The takes already running stay; say why the rest didn't start.
+        this.notice('error', `Started ${out.length} of ${count} takes: ${err.message}`);
+        break;
+      }
+    }
+    return out;
+  }
+
+  async createTake({ prompt, element, from, group = null }) {
+    let attempt = group ? group.attempt : 1;
+    let takeOf = group ? group.takeOf : null;
     if (from) {
       const src = this.takes.get(from);
       if (!src) throw new UserError("That take doesn't exist anymore.");

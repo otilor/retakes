@@ -557,7 +557,7 @@ export default function App({ host, restored, watcher }) {
         <div className={`pop${pop.kind === 'settings' ? ' menu' : ''}`} style={popStyle(edge, pos, size, vp, pop.kind === 'settings' ? 240 : 360)} role="dialog" aria-label="Retakes">
           {pop.kind === 'version' && <VersionPanel v={versions.find((x) => x.id === pop.id)} project={snap && snap.project} onClose={() => setPop(null)} setPop={setPop} />}
           {pop.kind === 'compose' && (
-            <Composer agent={snap && snap.agent} servedTake={servedTake} picked={picked} setPicked={setPicked} onRepick={onPrompt} onDone={() => setPop(null)} />
+            <Composer agent={snap && snap.agent} pro={snap && snap.pro} servedTake={servedTake} picked={picked} setPicked={setPicked} onRepick={onPrompt} onDone={() => setPop(null)} />
           )}
           {pop.kind === 'flows' && <FlowsPanel v={now} flows={(snap && snap.flows) || []} onRecord={onRecord} />}
           {pop.kind === 'keep' && <KeepPanel v={versions.find((x) => x.id === pop.id)} branch={snap && snap.project.branch} onClose={() => setPop(null)} />}
@@ -591,7 +591,7 @@ export default function App({ host, restored, watcher }) {
       {mode === 'watch' && <Watcher host={host} hintAt={edge === 'top' ? 'top' : 'bottom'} onStop={() => setMode(null)} />}
       {mode === 'record' && <Recorder host={host} hintAt={edge === 'top' ? 'top' : 'bottom'} Picker={Picker} onStop={() => setMode(null)} />}
 
-      {mode === 'compare' && <Compare versions={versions} onClose={() => setMode(null)} />}
+      {mode === 'compare' && <Compare versions={versions} pro={snap && snap.pro} onClose={() => setMode(null)} />}
     </div>
   );
 }
@@ -1018,9 +1018,10 @@ function KeepPanel({ v, branch, onClose }) {
   );
 }
 
-function Composer({ agent, servedTake, picked, setPicked, onRepick, onDone }) {
+function Composer({ agent, pro, servedTake, picked, setPicked, onRepick, onDone }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [count, setCount] = useState(1);
   const ref = useRef(null);
   useEffect(() => {
     const t = setTimeout(() => ref.current && ref.current.focus(), 30);
@@ -1035,8 +1036,11 @@ function Composer({ agent, servedTake, picked, setPicked, onRepick, onDone }) {
         await api(`takes/${servedTake.id}/followup`, { prompt: text, element: picked });
         toast.success(`${servedTake.label} is on it`, { duration: 3000 });
       } else {
-        const r = await api('takes', { prompt: text, element: picked });
-        toast.success(`${r.take.label} is on it. Its tile shows progress.`, { duration: 3500 });
+        const r = await api('takes', { prompt: text, element: picked, count });
+        const names = r.takes.map((t) => t.label);
+        toast.success(names.length > 1 ? `${names.join(', ')} are on it. Their tiles show progress.` : `${names[0]} is on it. Its tile shows progress.`, {
+          duration: 3500,
+        });
       }
       setPicked(null);
       onDone();
@@ -1083,11 +1087,13 @@ function Composer({ agent, servedTake, picked, setPicked, onRepick, onDone }) {
           }
         }}
       />
-      <AgentPick agent={agent} />
+      <AgentPick agent={agent}>
+        <TakeCount pro={pro} count={count} setCount={setCount} />
+      </AgentPick>
       <div className="row end">
         {servedTake && (
           <button type="button" className={`pbtn${primary === 'new' ? ' primary' : ''}`} disabled={busy || !text.trim()} onClick={() => submit('new')}>
-            New take
+            {count > 1 ? `${count} new takes` : 'New take'}
           </button>
         )}
         {servedTake ? (
@@ -1096,7 +1102,7 @@ function Composer({ agent, servedTake, picked, setPicked, onRepick, onDone }) {
           </button>
         ) : (
           <button type="button" className="pbtn primary" disabled={busy || !text.trim()} onClick={() => submit('new')}>
-            {busy ? 'Starting…' : 'Start agent'}
+            {busy ? 'Starting…' : count > 1 ? `Start ${count} agents` : 'Start agent'}
           </button>
         )}
       </div>
@@ -1111,10 +1117,44 @@ function Composer({ agent, servedTake, picked, setPicked, onRepick, onDone }) {
   );
 }
 
+/** Tell someone a feature is part of Pro, with a link to get it. */
+function proToast(what, pro) {
+  toast(`${what} is part of Retakes Pro.`, {
+    duration: 6000,
+    dismissible: true,
+    action: { label: 'Get Pro', onClick: () => open((pro && pro.url) || 'https://github.com/otilor/retakes#pro', '_blank', 'noopener') },
+  });
+}
+
+/** How many takes a new request starts. More than one is Pro. */
+function TakeCount({ pro, count, setCount }) {
+  if (!pro) return null;
+  const options = [1, pro.maxBatch || 3];
+  return (
+    <div className="opt">
+      <span>Takes</span>
+      <span className="seg">
+        {options.map((n) => (
+          <button
+            key={n}
+            type="button"
+            aria-pressed={count === n}
+            title={n > 1 ? 'Each take is asked for a different approach' : undefined}
+            onClick={() => (n > 1 && !pro.active ? proToast(`${n} takes at once`, pro) : setCount(n))}
+          >
+            {n === 1 ? 'One' : `${n} at once`}
+            {n > 1 && !pro.active && <span className="pro">Pro</span>}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
+}
+
 const EFFORT_LABELS = { low: 'Low', medium: 'Med', high: 'High', xhigh: 'XHigh', max: 'Max' };
 
 /** Which model and effort the next run uses. The hub remembers the pick for this app. */
-function AgentPick({ agent }) {
+function AgentPick({ agent, children }) {
   const [pending, setPending] = useState(null);
   useEffect(() => setPending(null), [agent && agent.model, agent && agent.effort]);
   if (!agent) return null;
@@ -1153,6 +1193,7 @@ function AgentPick({ agent }) {
           </span>
         </div>
       )}
+      {children}
     </div>
   );
 }
@@ -1246,16 +1287,17 @@ function Picker({ host, hintAt, onPick, hint }) {
 
 // ---------- compare ----------
 
-function Compare({ versions, onClose }) {
+const MAX_PANES = 4;
+
+function Compare({ versions, pro, onClose }) {
   const switchable = versions.filter((v) => v.switchable);
   const latestTake = [...switchable].reverse().find((v) => v.kind === 'take' && v.id !== CFG.v);
-  const [left, setLeft] = useState(CFG.v);
-  const [right, setRight] = useState(CFG.v === 'main' ? (latestTake ? latestTake.id : 'main') : 'main');
+  const [sides, setSides] = useState(() => [CFG.v, CFG.v === 'main' ? (latestTake ? latestTake.id : 'main') : 'main']);
   const [ports, setPorts] = useState({});
   const [sync, setSync] = useState(true);
-  const leftRef = useRef(null);
-  const rightRef = useRef(null);
+  const frames = useRef([]);
   const path = location.pathname + location.search + location.hash;
+  const canAdd = sides.length < MAX_PANES;
 
   useEffect(() => {
     const prev = document.documentElement.style.overflow;
@@ -1266,59 +1308,77 @@ function Compare({ versions, onClose }) {
   }, []);
 
   useEffect(() => {
-    for (const id of [left, right]) {
+    for (const id of new Set(sides)) {
       if (ports[id]) continue;
       api('pin', { version: id })
         .then((r) => setPorts((p) => ({ ...p, [id]: r.port })))
         .catch((err) => toast.error(err.message, { duration: 6000, dismissible: true }));
     }
-  }, [left, right]);
+  }, [sides]);
 
   useEffect(() => {
     const onMsg = (e) => {
       const d = e.data;
       if (!sync || !d || d.__retakes !== 'scroll') return;
-      const l = leftRef.current && leftRef.current.contentWindow;
-      const r = rightRef.current && rightRef.current.contentWindow;
-      const other = e.source === l ? r : e.source === r ? l : null;
-      if (other) other.postMessage({ __retakes: 'scrollTo', x: d.x, y: d.y }, '*');
+      const wins = frames.current.slice(0, sides.length).map((f) => f && f.contentWindow);
+      if (!wins.includes(e.source)) return;
+      for (const w of wins) if (w && w !== e.source) w.postMessage({ __retakes: 'scrollTo', x: d.x, y: d.y }, '*');
     };
     addEventListener('message', onMsg);
     return () => removeEventListener('message', onMsg);
-  }, [sync]);
+  }, [sync, sides.length]);
+
+  const setSide = (i, id) => setSides((s) => s.map((x, j) => (j === i ? id : x)));
+  const addPane = () => {
+    if (!pro || !pro.active) return proToast(`Comparing more than two`, pro);
+    const unused = switchable.find((v) => !sides.includes(v.id));
+    setSides((s) => [...s, unused ? unused.id : switchable[switchable.length - 1].id]);
+  };
+  const removePane = (i) => setSides((s) => s.filter((_, j) => j !== i));
 
   const src = (id) => (ports[id] ? `${location.protocol}//${location.hostname}:${ports[id]}${path}` : null);
-  const pane = (id, ref) => {
+  const pane = (id, i) => {
     const v = versions.find((x) => x.id === id);
     const s = src(id);
     return (
-      <div className="pane">
+      <div className="pane" key={i}>
         {v && (
           <span className="pane-label">
             <Avatar v={v} />
             {v.label}
           </span>
         )}
-        {s ? <iframe key={s} ref={ref} src={s} title={v ? v.label : id} /> : <div className="pane-wait">Loading…</div>}
+        {s ? <iframe key={s} ref={(el) => (frames.current[i] = el)} src={s} title={v ? v.label : id} /> : <div className="pane-wait">Loading…</div>}
       </div>
     );
   };
-  const select = (value, set, label) => (
-    <select className="sel" aria-label={label} value={value} onChange={(e) => set(e.target.value)}>
-      {switchable.map((v) => (
-        <option key={v.id} value={v.id}>
-          {v.label}
-        </option>
-      ))}
-    </select>
+  const select = (i) => (
+    <span className="side" key={i}>
+      <select className="sel" aria-label={`Pane ${i + 1}`} value={sides[i]} onChange={(e) => setSide(i, e.target.value)}>
+        {switchable.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.label}
+          </option>
+        ))}
+      </select>
+      {i >= 2 && (
+        <button type="button" className="btn-i sm" aria-label={`Remove pane ${i + 1}`} onClick={() => removePane(i)}>
+          <CloseIcon />
+        </button>
+      )}
+    </span>
   );
   return (
     <div className="cmp" role="dialog" aria-label="Compare versions">
       <div className="cmp-bar">
         <span className="title">Compare</span>
-        {select(left, setLeft, 'Left side')}
-        <span style={{ color: 'var(--muted)' }}>and</span>
-        {select(right, setRight, 'Right side')}
+        {sides.map((_, i) => select(i))}
+        {canAdd && switchable.length > 2 && (
+          <button type="button" className="pbtn" onClick={addPane} title="Compare up to four versions">
+            Add
+            {!(pro && pro.active) && <span className="pro">Pro</span>}
+          </button>
+        )}
         <span className="grow" />
         <label className="check">
           <input type="checkbox" checked={sync} onChange={(e) => setSync(e.target.checked)} />
@@ -1328,10 +1388,7 @@ function Compare({ versions, onClose }) {
           <CloseIcon />
         </button>
       </div>
-      <div className="cmp-panes">
-        {pane(left, leftRef)}
-        {pane(right, rightRef)}
-      </div>
+      <div className={`cmp-panes n${sides.length}`}>{sides.map((id, i) => pane(id, i))}</div>
     </div>
   );
 }
