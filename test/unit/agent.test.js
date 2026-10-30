@@ -21,6 +21,7 @@ test('agentKnows matches whole flags, not lookalikes', () => {
   assert.equal(agentKnows('--strict-mcp-config'), true);
   setAgentHelp('  --effort-mode <m>\n  Use --effortless to relax');
   assert.equal(agentKnows('--effort'), false);
+  setAgentHelp(null);
 });
 
 test('a follow-up resumes the same session', () => {
