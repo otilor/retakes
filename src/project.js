@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import crypto from 'node:crypto';
 import { git } from './git.js';
 import { UserError } from './proc.js';
+import { retakesHome } from './license.js';
 
 const LOCKFILES = [
   ['pnpm-lock.yaml', 'pnpm'],
@@ -60,8 +60,7 @@ export async function detectProject(cwd) {
   const pm = detectPackageManager(appDir, gitRoot);
   const devMode = resolveDevMode(pkg, config);
   const id = `${slug(pkg.name || path.basename(appDir))}-${hash(appDir).slice(0, 8)}`;
-  const home = process.env.RETAKES_HOME ? path.resolve(process.env.RETAKES_HOME) : path.join(os.homedir(), '.retakes');
-  const stateDir = path.join(home, 'projects', id);
+  const stateDir = path.join(retakesHome(), 'projects', id);
 
   return {
     name: pkg.name || path.basename(appDir),

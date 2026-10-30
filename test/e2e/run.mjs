@@ -291,7 +291,7 @@ try {
     await page.locator('retakes-dock .pick-hint').waitFor();
     await page.keyboard.press('Enter');
     await page.locator('retakes-dock .opts').waitFor();
-    ok((await page.locator('retakes-dock .opts button').count()) === 8, 'three models and five effort levels');
+    ok((await page.locator('retakes-dock .opts button').count()) === 10, 'three models, five effort levels and two take counts');
     await page.waitForTimeout(400);
     await page.screenshot({ path: path.join(SHOTS, '05b-model-pick.png') });
     await page.locator('retakes-dock .opts button', { hasText: 'Opus' }).click();

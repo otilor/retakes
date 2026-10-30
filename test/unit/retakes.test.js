@@ -56,3 +56,13 @@ test('effort is hidden when this Claude Code has no --effort', () => {
   setAgentHelp('  --model <m>');
   assert.equal(new Retakes(project()).snapshot().agent.efforts, false);
 });
+
+test('several takes at once needs Pro, and is capped', async () => {
+  const r = new Retakes(project());
+  assert.deepEqual(r.snapshot().pro, { active: false, url: 'https://github.com/otilor/retakes#pro', maxBatch: 3 });
+  await assert.rejects(r.createTakes({ prompt: 'Bigger button', count: 3 }), /Retakes Pro/);
+  const pro = new Retakes(project(), { license: { active: true, onChange: () => () => {} } });
+  assert.equal(pro.snapshot().pro.active, true);
+  await assert.rejects(pro.createTakes({ prompt: 'Bigger button', count: 4 }), /1 to 3/);
+  await assert.rejects(pro.createTakes({ prompt: 'Bigger button', count: 'abc' }), /1 to 3/);
+});

@@ -8,6 +8,7 @@ import { Retakes } from './retakes.js';
 import { Hub } from './hub.js';
 import { UserError, findPort, portFree } from './proc.js';
 import * as G from './git.js';
+import { License, PRO_URL } from './license.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8'));
@@ -23,8 +24,11 @@ const red = c('31');
 const HELP = `${bold('retakes')} ${dim(pkg.version)}  Ask Claude Code for changes to your running app and flip between takes.
 
 ${bold('Usage')}
-  retakes              Start your dev server with the dock (run it in your app's folder)
-  retakes clean        Remove every take: its worktree, its branch and its saved state
+  retakes                 Start your dev server with the dock (run it in your app's folder)
+  retakes clean           Remove every take: its worktree, its branch and its saved state
+  retakes activate <key>  Turn on Retakes Pro on this machine
+  retakes license         Show whether Pro is on
+  retakes deactivate      Turn Pro off here and free the key for another machine
 
 ${bold('Options')}
   --port <n>           Port to open the app on (default 4300)
@@ -76,7 +80,12 @@ export function parseArgs(argv) {
       if (!EFFORTS.includes(e)) throw new UserError(`--effort is one of ${EFFORTS.join(', ')}.`);
       out.effort = e;
     }
-    else if (a === 'start' || a === 'clean') out.cmd = a;
+    else if (a === 'start' || a === 'clean' || a === 'deactivate' || a === 'license') out.cmd = a;
+    else if (a === 'activate') {
+      out.cmd = 'activate';
+      out.key = argv[++i];
+      if (!out.key || out.key.startsWith('-')) throw new UserError('Paste your license key: retakes activate <key>');
+    }
     else throw new UserError(`Unknown option: ${a}. Run retakes --help.`);
   }
   return out;
@@ -89,6 +98,7 @@ export async function main(argv) {
     if (opts.cmd === 'help') return void process.stdout.write(HELP);
     if (opts.cmd === 'version') return void console.log(pkg.version);
     if (opts.cmd === 'clean') return await clean(opts);
+    if (opts.cmd === 'activate' || opts.cmd === 'deactivate' || opts.cmd === 'license') return await licenseCmd(opts);
     return await start(opts);
   } catch (err) {
     if (err instanceof UserError) {
@@ -145,7 +155,12 @@ async function start(opts) {
     const tool = project.devMode.kind === 'next' ? 'next dev' : 'vite';
     console.log(dim(`Your "dev" script doesn't start with ${tool}, so Retakes runs ${tool} directly. Set "dev" in retakes.config.json if it needs more.`));
   }
-  const retakes = new Retakes(project, { log, agent: { model: opts.model, effort: opts.effort } });
+  const license = new License();
+  if (license.data) {
+    license.refresh().catch(() => {});
+    setInterval(() => license.refresh().catch(() => {}), 6 * 60 * 60 * 1000).unref();
+  }
+  const retakes = new Retakes(project, { log, license, agent: { model: opts.model, effort: opts.effort } });
   const hub = new Hub(retakes, { port, host, dockFile: DOCK_FILE, log });
   await hub.listen();
   const shownHost = host === '127.0.0.1' || host === '0.0.0.0' ? 'localhost' : host;
@@ -219,6 +234,27 @@ async function clean(opts) {
   await G.git(['worktree', 'prune'], project.gitRoot).catch(() => {});
   fs.rmSync(project.stateDir, { recursive: true, force: true });
   console.log('Cleaned.');
+}
+
+async function licenseCmd(opts) {
+  const license = new License();
+  if (opts.cmd === 'activate') {
+    const info = await license.activate(opts.key);
+    console.log(`${blue('✔')} Retakes Pro is on for this machine (${info.key}). Thanks for supporting Retakes.`);
+    if (info.expiresAt) console.log(dim(`  Renews or ends on ${info.expiresAt.slice(0, 10)}.`));
+    return;
+  }
+  if (opts.cmd === 'deactivate') {
+    console.log((await license.deactivate()) ? 'Pro is off on this machine, and the key is free to use on another one.' : 'No license on this machine.');
+    return;
+  }
+  const info = await license.refresh({ force: true });
+  if (info.active) console.log(`${blue('✔')} Retakes Pro is on (${info.key}).`);
+  else if (info.key) {
+    const expired = info.expiresAt && Date.parse(info.expiresAt) <= Date.now();
+    const why = expired ? 'expired' : info.status === 'granted' ? 'not confirmed in the last week' : info.status;
+    console.log(`Retakes Pro is off: the key ${info.key} is ${why}. Run \`retakes license\` online, or get a new key at ${PRO_URL}`);
+  } else console.log(`Retakes Pro isn't on here. Get a key at ${PRO_URL}, then run \`retakes activate <key>\`.`);
 }
 
 function ask(q) {
