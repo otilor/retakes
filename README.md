@@ -8,7 +8,7 @@
 
 [![Retakes demo: point at the pricing cards, ask Claude Code for a change, watch it land live, try another take, flip between takes, compare and keep](https://raw.githubusercontent.com/otilor/retakes/main/docs/demo.gif)](docs/demo.mp4)
 
-▶ [Watch the demo with sound](docs/demo.mp4). Everything in it is a real run on a small demo app; only the waiting is sped up.
+▶ [Try it in your browser](https://otilor.github.io/retakes/) (no install), or [watch the demo with sound](docs/demo.mp4). Everything in it is a real run on a small demo app; only the waiting is sped up.
 
 Retakes is for one developer working on a Vite or Next.js app with Claude Code. There's nothing to set up in your app, and nothing ships in your build.
 
